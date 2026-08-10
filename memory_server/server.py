@@ -124,6 +124,8 @@ def listar_cuentas() -> list[dict]:
 
 def main() -> None:
     store.ensure_collections()
+    # El MCP se sirve en /mcp; la ofuscación del path público (ej. /Yu4/api) la hace el
+    # reverse proxy (nginx) mapeando /Yu4/api -> /mcp.
     mcp.run(transport="http", host=settings.mcp_host, port=settings.mcp_port)
 
 

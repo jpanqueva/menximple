@@ -1,0 +1,32 @@
+# Producción: todo en Docker, aislado. Qdrant SIN puerto al host (solo red interna);
+# la API solo escucha en 127.0.0.1:${API_PORT} para que únicamente el nginx del host la
+# alcance. El TLS y el path público /Yu4/api los da el nginx del host.
+#   Uso:  docker compose -f docker-compose.prod.yml up -d --build
+name: menximple
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage        # persistencia del único almacén
+
+  api:
+    build:
+      context: .
+      args:
+        WITH_EMBEDDINGS: "false"            # embeddings off por ahora
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333        # red interna de compose
+    ports:
+      - "127.0.0.1:${API_PORT}:8000"        # SOLO local; nginx hace de proxy
+    depends_on:
+      - qdrant
+    volumes:
+      - hf_cache:/home/app/.cache
+
+volumes:
+  qdrant_data:
+  hf_cache:
