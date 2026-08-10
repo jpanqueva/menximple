@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+qdrant_storage/
+*.egg-info/
+build/
+dist/
+tui/_srv.log

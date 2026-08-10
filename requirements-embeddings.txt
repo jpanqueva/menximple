@@ -1,0 +1,3 @@
+# Solo si se activan los vectores (EMBEDDINGS_ENABLED=true)
+qdrant-client>=1.9
+sentence-transformers>=3.0

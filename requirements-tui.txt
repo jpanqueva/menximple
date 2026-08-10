@@ -1,0 +1,3 @@
+# Cliente TUI / modo chat (se ejecutan del lado del usuario, no en el server)
+fastmcp>=2.9
+questionary>=2.0

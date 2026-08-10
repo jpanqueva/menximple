@@ -1,0 +1,31 @@
+# Todo en Docker, con volúmenes nombrados para persistencia (Qdrant sobre todo).
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage      # <- persistencia del único almacén
+    ports:
+      - "6333:6333"                       # REST/HTTP
+      - "6334:6334"                       # gRPC
+
+  api:
+    build:
+      context: .
+      # Para activar embeddings, cambia a "true" y pon EMBEDDINGS_ENABLED=true en .env
+      args:
+        WITH_EMBEDDINGS: "false"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333       # sobrescribe el .env dentro de la red docker
+    ports:
+      - "8000:8000"                        # MCP Streamable HTTP en /mcp
+    depends_on:
+      - qdrant
+    volumes:
+      - hf_cache:/home/app/.cache          # caché del modelo de embeddings (si se usa)
+
+volumes:
+  qdrant_data:
+  hf_cache:

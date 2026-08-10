@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "menximple"
+version = "0.1.0"
+description = "menximple — hub de memoria a largo plazo (MCP, Qdrant) + cliente TUI/chat"
+requires-python = ">=3.10"
+readme = "README.md"
+authors = [{ name = "Jhon Jairo Panqueva" }]
+# Dependencias del CLIENTE (lo que se instala en las consolas):
+dependencies = [
+    "fastmcp>=2.9",
+    "questionary>=2.0",
+]
+
+[project.optional-dependencies]
+# En el servidor:  pip install "menximple[server] @ git+https://github.com/jpanqueva/menximple@main"
+server = [
+    "qdrant-client>=1.9",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+]
+# Embeddings del resumen (opcional, en el servidor):
+embeddings = ["sentence-transformers>=3.0"]
+
+[project.scripts]
+menximple = "memory_tui.launcher:main"          # cliente: selector TUI / modo chat
+menximple-server = "memory_server.server:main"  # servidor MCP
+
+[tool.setuptools]
+packages = ["memory_server", "memory_tui"]

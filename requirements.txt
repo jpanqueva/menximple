@@ -1,0 +1,8 @@
+# Núcleo (siempre)
+fastmcp>=2.9
+qdrant-client>=1.9
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# Opcional (embeddings del resumen) — instalar solo si EMBEDDINGS_ENABLED=true:
+#   pip install -r requirements-embeddings.txt
