@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Direction, Distance, FieldCondition, Filter, MatchAny, MatchText, MatchValue,
-    OrderBy, PayloadSchemaType, PointStruct, VectorParams,
+    OrderBy, PayloadSchemaType, PointStruct, TextIndexParams, TextIndexType,
+    TokenizerType, VectorParams,
 )
 
 from .config import settings
@@ -80,6 +81,12 @@ def _flt(must) -> Filter | None:
 
 # --- esquema --------------------------------------------------------------- #
 
+# Prefijos de 2 letras en adelante: con 1 el índice crece muchísimo y una sola
+# letra no discrimina nada.
+PREFIJO = TextIndexParams(type=TextIndexType.TEXT, tokenizer=TokenizerType.PREFIX,
+                          min_token_len=2, max_token_len=30, lowercase=True)
+
+
 def ensure_collections() -> None:
     c = client()
     existentes = {x.name for x in c.get_collections().collections}
@@ -99,15 +106,32 @@ def ensure_collections() -> None:
     _idx(ENTRADAS, {
         "cuenta": kw, "folder_id": kw, "ancestros": kw, "tipo": kw, "tags": kw,
         "updated_at": flt, "last_used": flt,
-        "titulo": txt, "resumen": txt, "contexto": txt,
+        # Título y resumen se buscan escribiendo a medias ("corr" -> "Correlativo"),
+        # así que van indexados por prefijo. El contexto no: indexar cada prefijo de
+        # cada palabra de un texto largo multiplica el índice sin ganar nada, porque
+        # lo que el usuario busca a tientas es el nombre, no el cuerpo.
+        "titulo": PREFIJO, "resumen": PREFIJO, "contexto": txt,
     })
 
 
+def _mismo_indice(info, deseado) -> bool:
+    """¿El índice que ya existe es el que queremos? Cambiar el esquema en el código
+    no reindexa nada: un índice creado con otro tokenizador hay que rehacerlo."""
+    tok = getattr(deseado, "tokenizer", None)
+    if tok is None:                      # keyword/float: no tienen variantes
+        return True
+    return getattr(getattr(info, "params", None), "tokenizer", None) == tok
+
+
 def _idx(coll: str, campos: dict) -> None:
-    existentes = set((client().get_collection(coll).payload_schema or {}).keys())
+    esquema = client().get_collection(coll).payload_schema or {}
     for campo, tipo in campos.items():
-        if campo not in existentes:
-            client().create_payload_index(coll, field_name=campo, field_schema=tipo)
+        actual = esquema.get(campo)
+        if actual is not None:
+            if _mismo_indice(actual, tipo):
+                continue
+            client().delete_payload_index(coll, field_name=campo)
+        client().create_payload_index(coll, field_name=campo, field_schema=tipo)
 
 
 # --- operaciones sobre puntos --------------------------------------------- #
