@@ -335,6 +335,21 @@ def buscar_relacionadas(cta: str, texto: str | None = None,
 
 
 def listar_recientes(cta: str, limit: int = 10) -> list[dict]:
-    res = store.scroll(store.ENTRADAS, must=[store.cond("cuenta", cta)],
-                       order_key="last_used", limit=limit)
-    return [_entrada_out(p) for p in res]
+    """Las últimas usadas primero y, si sobra cupo, las creadas/editadas más nuevas.
+
+    Una entrada nunca usada no tiene `last_used`, y Qdrant excluye del `order_by`
+    los puntos sin ese campo: sin el relleno, una cuenta recién poblada se vería
+    vacía."""
+    must = [store.cond("cuenta", cta)]
+    salida = store.scroll(store.ENTRADAS, must=must, order_key="last_used", limit=limit)
+    if len(salida) < limit:
+        vistos = {p["_id"] for p in salida}
+        nuevas = store.scroll(store.ENTRADAS, must=must, order_key="updated_at",
+                              limit=limit + len(vistos))
+        for p in nuevas:
+            if p["_id"] in vistos:
+                continue
+            salida.append(p)
+            if len(salida) >= limit:
+                break
+    return [_entrada_out(p) for p in salida]
