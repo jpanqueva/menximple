@@ -8,7 +8,10 @@ que es lo que el launcher lee para traer el contexto.
 Previsualizar NO cuenta como cargar: el detalle se pide con `marcar_uso=False`."""
 import argparse
 import json
+import os
 import sys
+import tempfile
+import traceback
 from datetime import datetime, timezone
 
 from rich.text import Text
@@ -20,6 +23,17 @@ from textual.widgets import Footer, Header, Input, Markdown, Static, Tree
 
 from . import client
 
+# Se ejecuta en una ventana aparte: si algo revienta ahí, no lo ve nadie.
+LOG = os.path.join(tempfile.gettempdir(), "menximple-tui.log")
+
+
+def _log(msg: str) -> None:
+    try:
+        with open(LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {msg}\n")
+    except OSError:
+        pass
+
 
 class Arbol(Tree):
     """Tree normal, salvo ESPACIO: aquí marca la memoria en vez de plegar el nodo.
@@ -27,10 +41,37 @@ class Arbol(Tree):
     Los BINDINGS se heredan por MRO, así que no basta con filtrar el del padre:
     hay que redefinir la misma tecla para que gane la de esta clase."""
 
-    BINDINGS = [Binding("space", "marcar_memoria", "Marcar", show=True)]
+    BINDINGS = [
+        Binding("space", "marcar_memoria", "Marcar", show=True),
+        Binding("right", "abrir", "Abrir", show=False),
+        Binding("left", "cerrar", "Cerrar", show=False),
+    ]
 
     def action_marcar_memoria(self) -> None:
         self.app.action_marcar()
+
+    def action_abrir(self) -> None:
+        n = self.cursor_node
+        if n is not None and n.allow_expand and not n.is_expanded:
+            n.expand()
+
+    def action_cerrar(self) -> None:
+        """Cierra la carpeta; si ya está cerrada, sube a la carpeta que la contiene."""
+        n = self.cursor_node
+        if n is None:
+            return
+        if n.allow_expand and n.is_expanded:
+            n.collapse()
+        elif n.parent is not None and n.parent is not self.root:
+            self.select_node(n.parent)
+            self.scroll_to_node(n.parent)
+
+
+class Detalle(VerticalScroll):
+    """Panel derecho. No toma el foco: si lo tomara, las flechas dejarían de mover
+    el árbol y la interfaz parecería congelada. Se desplaza con AvPág/RePág."""
+
+    can_focus = False
 
 
 class Buscador(Input):
@@ -102,6 +143,8 @@ class Navegador(App):
         ("f2", "confirmar", "Cargar selección"),
         ("escape", "cancelar", "Cancelar"),
         ("slash", "enfocar_busqueda", "Buscar"),
+        Binding("pagedown", "desplazar(1)", "Bajar detalle", show=False),
+        Binding("pageup", "desplazar(-1)", "Subir detalle", show=False),
     ]
 
     def __init__(self, out: str, query: str = "", folder: str | None = None, limit: int = 20):
@@ -113,6 +156,8 @@ class Navegador(App):
         self.marcadas: dict[str, dict] = {}   # id -> entrada (orden = orden de marcado)
         self.confirmado = False
         self.cuenta = "…"
+        self._gen = 0                 # descarta contextos que llegan tarde
+        self._temporizador = None     # rebote al mover el cursor
 
     # --- Layout --- #
 
@@ -122,7 +167,7 @@ class Navegador(App):
             with Vertical(id="izq"):
                 yield Buscador(placeholder="tema y Enter · vacío = todo", id="buscador")
                 yield Arbol("memorias", id="arbol")
-            with VerticalScroll(id="der"):
+            with Detalle(id="der"):
                 yield Static(id="ficha")
                 yield Markdown(id="contexto")
         yield Footer()
@@ -151,9 +196,19 @@ class Navegador(App):
         res = client.buscar(query=query, limit=self.limit)
         self.call_from_thread(self._pintar_busqueda, query, res)
 
-    @work(thread=True, exclusive=True, group="ficha")
-    def _cargar_contexto(self, entrada: dict) -> None:
-        full = client.obtener_entrada(entrada["id"], marcar_uso=False)
+    @work(thread=True)
+    def _cargar_contexto(self, entry_id: str, gen: int) -> None:
+        """Sin `exclusive`: un worker de hilo no se puede cancelar de verdad, así que
+        en vez de cancelarlo se descarta su respuesta si el cursor ya se movió."""
+        try:
+            full = client.obtener_entrada(entry_id, marcar_uso=False)
+        except Exception as e:
+            _log(f"obtener_entrada({entry_id}): {traceback.format_exc()}")
+            self.call_from_thread(self.query_one("#contexto", Markdown).update,
+                                  f"*no se pudo cargar el contexto: {e}*")
+            return
+        if gen != self._gen:
+            return
         self.call_from_thread(self.query_one("#contexto", Markdown).update,
                               full.get("contexto", "") or "*(sin contexto)*")
 
@@ -221,7 +276,14 @@ class Navegador(App):
                 t.append(f"{v}\n")
             ficha.update(t)
             ctx.update("*cargando contexto…*")
-            self._cargar_contexto(obj)
+            # Rebote: al bajar rápido por la lista, sólo se pide el contexto de la
+            # memoria donde el cursor se detiene, no el de cada una que pasa.
+            self._gen += 1
+            gen = self._gen
+            if self._temporizador is not None:
+                self._temporizador.stop()
+            self._temporizador = self.set_timer(
+                0.25, lambda: self._cargar_contexto(obj["id"], gen))
 
         elif info.get("kind") == "carpeta":
             t = Text()
@@ -254,7 +316,10 @@ class Navegador(App):
     # --- Eventos --- #
 
     def on_tree_node_highlighted(self, ev) -> None:
-        self._pintar_ficha(ev.node)
+        try:
+            self._pintar_ficha(ev.node)
+        except Exception:  # un fallo pintando no puede dejar la lista sin responder
+            _log(f"_pintar_ficha: {traceback.format_exc()}")
 
     def on_tree_node_expanded(self, ev) -> None:
         info = ev.node.data or {}
@@ -278,6 +343,15 @@ class Navegador(App):
 
     def action_enfocar_busqueda(self) -> None:
         self.query_one("#buscador", Input).focus()
+
+    def action_desplazar(self, paso: int) -> None:
+        """El panel derecho no toma el foco, así que se desplaza desde aquí."""
+        self.query_one("#der", Detalle).scroll_page_down() if paso > 0 \
+            else self.query_one("#der", Detalle).scroll_page_up()
+
+    def on_worker_state_changed(self, ev) -> None:
+        if ev.worker.state.name == "ERROR":   # si no, la ventana muere sin explicación
+            _log(f"worker {ev.worker.name}: {ev.worker.error!r}")
 
     def action_marcar(self) -> None:
         arbol = self.query_one("#arbol", Arbol)
