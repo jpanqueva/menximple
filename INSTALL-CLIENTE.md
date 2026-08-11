@@ -1,7 +1,18 @@
 # Instalar el CLIENTE de `menximple` (en tus consolas)
 
-El cliente da los comandos `menximple select` / `menximple load` para buscar y cargar
-memorias desde cualquier consola. Habla con el servidor por HTTP.
+El cliente trae dos cosas que hablan con el hub por HTTP:
+
+- **`menximple-mcp`** — servidor MCP **local** que le da al agente el selector
+  visual. Es la forma normal de usarlo; va en el `.mcp.json` de tu proyecto.
+- **`menximple select` / `menximple load`** — los mismos comandos desde una
+  consola, sin agente.
+
+El hub corre en un contenedor en el servidor y no puede abrir ventanas en tu PC:
+por eso el selector tiene que vivir aquí.
+
+> **En Windows con Claude Code, usa [docs/INSTALAR-EN-WINDOWS.md](docs/INSTALAR-EN-WINDOWS.md)**:
+> deja los dos MCP configurados para todas tus sesiones y sin pedir permisos cada
+> vez. Esta página es el equivalente genérico (Linux/macOS, o uso desde consola).
 
 ## Requisitos
 - Python 3.10+

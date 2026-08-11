@@ -1,0 +1,211 @@
+# Instalar menximple en tu Windows (Claude Code)
+
+Esta guía es para **usar** el sistema, no para montarlo. Al terminar, Claude Code
+tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que se abra.
+
+> **Si eres un agente de IA y te dijeron "lee este repo e instala":** sigue los
+> pasos 1 a 5 en orden. Lo único que no está aquí — y que **no puede estar**,
+> porque el repositorio es público — son la URL base y la apikey. Pídeselas al
+> usuario antes de empezar y no las escribas en ningún archivo del repositorio.
+
+---
+
+## 0. Lo que tienes que pedir antes de empezar
+
+Pídele a quien administra el servidor:
+
+| dato | pinta que tiene |
+|---|---|
+| **URL base** del hub | `https://algo.tu-dominio.com/xxxx/api` |
+| **apikey de tu cuenta** | una cadena larga, tuya y personal |
+
+Dos cosas importantes:
+
+- **Tu apikey es tu cuenta.** Quien la tenga ve todas tus memorias. No la pegues
+  en un chat de grupo, ni en un repositorio, ni en el `.mcp.json` de un proyecto
+  (ese archivo se commitea). En esta guía terminan en tu perfil de Windows, que no
+  se sube a ningún lado.
+- **Se entrega una sola vez.** Si la pierdes hay que generar una cuenta nueva.
+
+---
+
+## 1. Requisitos
+
+Abre PowerShell y comprueba:
+
+```powershell
+python --version    # 3.10 o superior
+claude --version    # Claude Code instalado
+git --version
+```
+
+Si `python` no responde, instálalo desde [python.org](https://www.python.org/downloads/)
+marcando **"Add python.exe to PATH"**, y reabre la terminal.
+
+---
+
+## 2. Instalar el cliente
+
+No hace falta clonar el repositorio: pip lo descarga solo. Con **pipx**
+(recomendado, aísla el paquete y no toca tu Python):
+
+```powershell
+python -m pip install --user pipx
+python -m pipx ensurepath
+# cierra y reabre PowerShell para que el PATH se refresque
+pipx install "git+https://github.com/jpanqueva/menximple@main"
+```
+
+Sin pipx funciona igual:
+
+```powershell
+pip install "git+https://github.com/jpanqueva/menximple@main"
+```
+
+Comprueba que quedó y **anota la ruta** que imprima:
+
+```powershell
+where.exe menximple-mcp
+```
+
+Debe salir algo como `C:\Users\TU-USUARIO\.local\bin\menximple-mcp.exe` (pipx) o
+`...\Python313\Scripts\menximple-mcp.exe` (pip). Si no imprime nada, el directorio
+de scripts no está en el PATH: usa la ruta completa en el paso 3 y arregla el PATH
+después.
+
+> **Clonar el repo solo hace falta si vas a tocar el código.** En ese caso:
+> `git clone https://github.com/jpanqueva/menximple.git` y dentro,
+> `pip install -e .` en lugar de lo de arriba.
+
+---
+
+## 3. Registrar los dos servidores MCP
+
+Son **dos** y hacen falta los dos:
+
+| | qué hace | dónde corre |
+|---|---|---|
+| `menximple` | el hub: buscar, guardar, organizar | en el servidor |
+| `menximple-selector` | abre el selector visual en tu escritorio | **en tu PC** |
+
+El hub vive en un contenedor y no tiene pantalla donde dibujar: por eso el
+selector tiene que correr aquí.
+
+`--scope user` es lo que hace que valga para **todas** tus sesiones y no solo para
+un proyecto. Reemplaza `<URL>` y `<APIKEY>`:
+
+```powershell
+claude mcp add --scope user --transport http menximple <URL> --header "X-API-Key: <APIKEY>"
+
+claude mcp add --scope user menximple-selector -e "MEMORY_BASE_URL=<URL>" -e "MEMORY_APIKEY=<APIKEY>" "--" menximple-mcp
+```
+
+> Las comillas alrededor de `"--"` no sobran: sin ellas PowerShell se lo come y el
+> comando falla con `missing required argument 'commandOrUrl'`.
+
+Comprobar:
+
+```powershell
+claude mcp list
+```
+
+Los dos deben salir **√ Connected**. Quedan guardados en
+`%USERPROFILE%\.claude.json`, fuera de cualquier repositorio.
+
+---
+
+## 4. Quitar las confirmaciones de permisos
+
+Sin esto Claude Code te pregunta cada vez que usa una tool de memoria. Pega este
+bloque en PowerShell — respeta lo que ya tengas configurado:
+
+```powershell
+$f = "$env:USERPROFILE\.claude\settings.json"
+if (Test-Path $f) { $s = Get-Content $f -Raw | ConvertFrom-Json } else { $s = [pscustomobject]@{} }
+if (-not $s.permissions) {
+  $s | Add-Member -NotePropertyName permissions -NotePropertyValue ([pscustomobject]@{ allow=@(); deny=@(); ask=@() }) -Force
+}
+if (-not $s.permissions.allow) {
+  $s.permissions | Add-Member -NotePropertyName allow -NotePropertyValue @() -Force
+}
+$s.permissions.allow = @($s.permissions.allow + @("mcp__menximple","mcp__menximple-selector") | Select-Object -Unique)
+[IO.File]::WriteAllText($f, ($s | ConvertTo-Json -Depth 20))
+Get-Content $f
+```
+
+Queda así:
+
+```json
+{
+  "permissions": {
+    "allow": ["mcp__menximple", "mcp__menximple-selector"],
+    "deny": [],
+    "ask": []
+  }
+}
+```
+
+`mcp__menximple` autoriza **todas** las tools de ese servidor. Si prefieres que te
+siga preguntando antes de borrar, no pongas esa línea: lista una por una las que
+sí autorizas (`mcp__menximple__buscar`, `mcp__menximple__arbol`, …) y deja fuera
+`mcp__menximple__borrar_entrada` y `mcp__menximple__borrar_carpeta`.
+
+> Se usa `[IO.File]::WriteAllText` y no `Out-File` porque en PowerShell 5.1
+> `Out-File -Encoding utf8` escribe BOM, y un JSON con BOM puede no parsearse.
+
+---
+
+## 5. Comprobar que quedó
+
+Reinicia Claude Code y pide, en cualquier sesión:
+
+> muéstrame el árbol de mis memorias
+
+Debe responder con la estructura de tu cuenta. Después:
+
+> abre mis memorias
+
+Debe abrirse una ventana en el escritorio con el selector. Si el árbol salió pero
+la ventana no, el hub está bien y el problema es el servidor local del paso 3.
+
+---
+
+## Si algo falla
+
+| síntoma | causa y arreglo |
+|---|---|
+| `missing required argument 'commandOrUrl'` | Faltaron las comillas en `"--"` (paso 3). |
+| `menximple-selector` no aparece en la lista | La carpeta de scripts no está en el PATH. Regístralo otra vez con la ruta completa que dio `where.exe`. |
+| Aparece pero sale **failed** | Ejecuta `menximple-mcp` a mano: debe quedarse esperando sin imprimir nada (habla por stdin/stdout). Si revienta, falta una dependencia: reinstala con pipx. |
+| **Pending approval** | Lo registraste en un proyecto en vez de con `--scope user`. Repite el paso 3 con esa opción. |
+| Error de autenticación | Apikey mal copiada o URL incompleta. Revisa `%USERPROFILE%\.claude.json` → `mcpServers.menximple`. |
+| El selector no abre ventana | Solo abre donde hay escritorio. Por SSH o en un servidor, el agente cae a modo chat: te enseña el árbol y eliges por número. |
+| Sigue pidiendo permiso | El `settings.json` quedó mal formado. Ábrelo y valida que sea JSON legal. |
+
+---
+
+## Actualizar
+
+```powershell
+pipx install --force "git+https://github.com/jpanqueva/menximple@main"
+```
+
+Reinicia Claude Code después: el servidor local arranca con la sesión, así que el
+código nuevo no aplica hasta reiniciar.
+
+---
+
+## Desinstalar
+
+```powershell
+claude mcp remove --scope user menximple
+claude mcp remove --scope user menximple-selector
+pipx uninstall menximple
+```
+
+Y quita las dos entradas de `permissions.allow` en
+`%USERPROFILE%\.claude\settings.json`.
+
+---
+
+Ya instalado, cómo se usa: **[../USO.md](../USO.md)**
