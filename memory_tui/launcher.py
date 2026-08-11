@@ -35,7 +35,8 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: in
     # Sin consola propia la TUI heredaria nuestro stdout, y si quien nos llama es el
     # MCP local (stdio) eso corromperia el protocolo: en ese caso, a /dev/null.
     salida = None if flags else subprocess.DEVNULL
-    p = subprocess.Popen(cmd, creationflags=flags, stdout=salida, stderr=salida)
+    entorno = {**os.environ, "PYTHONIOENCODING": "utf-8"}  # la TUI dibuja con Unicode
+    p = subprocess.Popen(cmd, creationflags=flags, stdout=salida, stderr=salida, env=entorno)
     try:
         p.wait(timeout=timeout)          # bloquea hasta que la ventana muere
     except subprocess.TimeoutExpired:

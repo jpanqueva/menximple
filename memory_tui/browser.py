@@ -8,15 +8,30 @@ que es lo que el launcher lee para traer el contexto.
 Previsualizar NO cuenta como cargar: el detalle se pide con `marcar_uso=False`."""
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Header, Input, Static, Tree
+from textual.widgets import Footer, Header, Input, Markdown, Static, Tree
 
 from . import client
+
+
+class Arbol(Tree):
+    """Tree normal, salvo ESPACIO: aquí marca la memoria en vez de plegar el nodo.
+
+    Los BINDINGS se heredan por MRO, así que no basta con filtrar el del padre:
+    hay que redefinir la misma tecla para que gane la de esta clase."""
+
+    BINDINGS = [Binding("space", "marcar_memoria", "Marcar", show=True)]
+
+    def action_marcar_memoria(self) -> None:
+        self.app.action_marcar()
+
 
 # Color por tipo de memoria: el mismo criterio en el árbol y en la ficha.
 COLOR_TIPO = {"credencial": "red", "skill": "cyan",
@@ -61,18 +76,15 @@ class Navegador(App):
     """Selector de memorias en dos paneles."""
 
     CSS = """
-    Screen { layers: base; }
-    #izq { width: 42%; border-right: solid $accent; }
+    #izq { width: 48%; border-right: solid $accent; }
     #buscador { border: none; background: $boost; margin: 0; }
     #arbol { padding: 0 1; height: 1fr; }
     #der { width: 1fr; padding: 1 2; }
     #ficha { height: auto; }
-    #contexto { height: auto; padding: 1 0 0 0; color: $text-muted; }
-    #estado { dock: bottom; height: 1; padding: 0 1; background: $accent; color: $text; }
+    #contexto { height: auto; background: transparent; margin: 0; padding: 0; }
     """
 
-    BINDINGS = [
-        ("space", "marcar", "Marcar"),
+    BINDINGS = [  # ESPACIO lo declara el árbol, para poder ganarle al Tree de Textual
         ("f2", "confirmar", "Cargar selección"),
         ("escape", "cancelar", "Cancelar"),
         ("slash", "enfocar_busqueda", "Buscar"),
@@ -94,17 +106,15 @@ class Navegador(App):
         with Horizontal():
             with Vertical(id="izq"):
                 yield Input(placeholder="Buscar y Enter (vacío = todo)", id="buscador")
-                yield Tree("memorias", id="arbol")
+                yield Arbol("memorias", id="arbol")
             with VerticalScroll(id="der"):
                 yield Static(id="ficha")
-                yield Static(id="contexto")
-        yield Static(id="estado")
+                yield Markdown(id="contexto")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "menximple"
-        self.sub_title = "selector de memorias"
-        arbol = self.query_one("#arbol", Tree)
+        arbol = self.query_one("#arbol", Arbol)
         arbol.show_root = False
         arbol.focus()
         self._pintar_estado()
@@ -129,8 +139,8 @@ class Navegador(App):
     @work(thread=True, exclusive=True, group="ficha")
     def _cargar_contexto(self, entrada: dict) -> None:
         full = client.obtener_entrada(entrada["id"], marcar_uso=False)
-        self.call_from_thread(self.query_one("#contexto", Static).update,
-                              full.get("contexto", "") or "(sin contexto)")
+        self.call_from_thread(self.query_one("#contexto", Markdown).update,
+                              full.get("contexto", "") or "*(sin contexto)*")
 
     # --- Pintado --- #
 
@@ -160,7 +170,7 @@ class Navegador(App):
         node.expand()
 
     def _pintar_busqueda(self, query: str, res: list[dict]) -> None:
-        arbol = self.query_one("#arbol", Tree)
+        arbol = self.query_one("#arbol", Arbol)
         arbol.root.remove_children()
         if not res:
             arbol.root.add_leaf(Text(f"sin resultados para «{query}»", style="dim italic"),
@@ -171,7 +181,7 @@ class Navegador(App):
 
     def _pintar_ficha(self, node) -> None:
         ficha = self.query_one("#ficha", Static)
-        ctx = self.query_one("#contexto", Static)
+        ctx = self.query_one("#contexto", Markdown)
         info = node.data or {}
         obj = info.get("obj")
 
@@ -191,9 +201,8 @@ class Navegador(App):
             ):
                 t.append(f"{k:>14}  ", style="dim")
                 t.append(f"{v}\n")
-            t.append("\n" + "─" * 40, style="dim")
             ficha.update(t)
-            ctx.update(Text("cargando contexto…", style="dim italic"))
+            ctx.update("*cargando contexto…*")
             self._cargar_contexto(obj)
 
         elif info.get("kind") == "carpeta":
@@ -215,12 +224,13 @@ class Navegador(App):
             ctx.update("")
 
     def _pintar_estado(self) -> None:
+        """El contador vive en el subtítulo: el Footer ya ocupa la línea de abajo."""
         n = len(self.marcadas)
+        if not n:
+            self.sub_title = "ninguna marcada"
+            return
         tot = sum(e.get("tokens") or 0 for e in self.marcadas.values())
-        txt = (f" {n} marcada(s) · {_tokens(tot)} tokens a cargar   —   "
-               f"ESPACIO marca · F2 carga · ESC cancela" if n else
-               " ESPACIO marca · F2 carga · ESC cancela · / busca")
-        self.query_one("#estado", Static).update(txt)
+        self.sub_title = f"{n} marcada(s) · {_tokens(tot)} tokens a cargar"
 
     # --- Eventos --- #
 
@@ -237,7 +247,7 @@ class Navegador(App):
 
     def on_input_submitted(self, ev: Input.Submitted) -> None:
         q = ev.value.strip()
-        arbol = self.query_one("#arbol", Tree)
+        arbol = self.query_one("#arbol", Arbol)
         arbol.focus()
         if q:
             self._buscar(q)
@@ -251,7 +261,7 @@ class Navegador(App):
         self.query_one("#buscador", Input).focus()
 
     def action_marcar(self) -> None:
-        arbol = self.query_one("#arbol", Tree)
+        arbol = self.query_one("#arbol", Arbol)
         node = arbol.cursor_node
         info = (node.data or {}) if node else {}
         if info.get("kind") != "entrada":
@@ -293,6 +303,13 @@ def main() -> None:
     ap.add_argument("--folder", default=None)
     ap.add_argument("--limit", type=int, default=20)
     a = ap.parse_args()
+
+    # La consola nueva de Windows no arranca en UTF-8 y la interfaz usa ▸ ✓ ─.
+    for flujo in (sys.stdout, sys.stderr):
+        try:
+            flujo.reconfigure(encoding="utf-8")
+        except (AttributeError, OSError):
+            pass
 
     app = Navegador(a.out, a.query, a.folder, a.limit)
     try:
