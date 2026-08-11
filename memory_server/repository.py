@@ -436,6 +436,64 @@ def cargar_contexto(cta: str, entry_ids: list[str]) -> list[dict]:
     return salida
 
 
+def carpeta_por_ref(cta: str, ref: str) -> dict:
+    """La carpeta referida por su id, su nombre o su ruta ("insumedic/rips").
+
+    Por nombre y no solo por id porque el `arbol()` no imprime los ids de las
+    carpetas: si solo aceptara uuid, para cargar una carpeta habria que llamar a
+    `listar` antes solo para averiguarlo. Si el nombre sale varias veces se
+    rechaza diciendo cuales son, en vez de elegir por el usuario."""
+    ref = _req(ref, "carpeta")
+    f = store.get(store.CARPETAS, ref)
+    if f and f.get("cuenta") == cta:
+        return f
+
+    objetivo = _normaliza(ref).strip("/")
+    coincide = []
+    for c in store.scroll(store.CARPETAS, must=[store.cond("cuenta", cta),
+                                                store.cond_viva()], limit=10000):
+        ruta = "/".join(_normaliza(x) for x in (c.get("path", []) + [c["nombre"]]))
+        if ruta == objetivo or ruta.endswith("/" + objetivo):
+            coincide.append(c)
+    if not coincide:
+        raise MemoriaError(f"no encuentro la carpeta '{ref}' en la cuenta '{cta}'; "
+                           "mira el `arbol()` para ver las que hay")
+    if len(coincide) > 1:
+        rutas = ", ".join("/".join(c.get("path", []) + [c["nombre"]]) for c in coincide)
+        raise MemoriaError(f"'{ref}' puede ser varias carpetas: {rutas}. "
+                           "Usa la ruta completa.")
+    return coincide[0]
+
+
+def entradas_de_carpeta(cta: str, folder_id: str, con_subcarpetas: bool = True) -> list[dict]:
+    """Los puntos de las memorias que cuelgan de una carpeta, por consecutivo.
+
+    `ancestros` de una entrada incluye su propia carpeta, asi que la misma
+    condición sirve para el subárbol entero."""
+    must = [store.cond("cuenta", cta), store.cond_viva()]
+    must.append(store.cond_any("ancestros", [folder_id]) if con_subcarpetas
+                else store.cond("folder_id", folder_id))
+    return store.scroll(store.ENTRADAS, must=must, order_key="numero", desc=False,
+                        limit=1000)
+
+
+def cargar_carpeta(cta: str, carpeta: str, con_subcarpetas: bool = True) -> dict:
+    """Carga de golpe todas las memorias de una carpeta (y de las que cuelgan de ella)."""
+    f = carpeta_por_ref(cta, carpeta)
+    ruta = "/".join(f.get("path", []) + [f["nombre"]])
+    entradas = entradas_de_carpeta(cta, f["_id"], con_subcarpetas)
+    if not entradas:
+        raise MemoriaError(f"la carpeta '{ruta}' no tiene memorias"
+                           + ("" if con_subcarpetas else " directamente dentro"))
+
+    salida = []
+    for e in entradas:
+        _marcar_uso(e)
+        salida.append(_entrada_out(e, con_contexto=True))
+    return {"carpeta": ruta, "folder_id": f["_id"], "total": len(salida),
+            "tokens": sum(m["tokens"] for m in salida), "memorias": salida}
+
+
 def _marcar_uso(e: dict) -> None:
     e["use_count"] = e.get("use_count", 0) + 1  # refleja el incremento en el objeto devuelto
     e["last_used"] = store.now_ts()

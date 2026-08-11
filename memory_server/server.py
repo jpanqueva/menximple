@@ -99,6 +99,21 @@ def obtener_entrada(entry_id: str, marcar_uso: bool = True) -> dict:
 
 
 @mcp.tool
+def cargar_carpeta(carpeta: str, con_subcarpetas: bool = True) -> dict:
+    """Carga **todas** las memorias de una carpeta de una vez ("cárgame todo insumedic").
+
+    `carpeta` acepta el id, el nombre (`rips`) o la ruta (`insumedic/rips`); si el
+    nombre se repite en varios sitios te dice cuáles son para que elijas.
+    `con_subcarpetas=False` se queda en el primer nivel.
+
+    **Mira el tamaño antes.** El `arbol()` da los tokens de cada memoria: una rama
+    entera puede ser mucho contexto y el usuario lo paga en toda la conversación.
+    Si suma demasiado, enséñale el árbol y que elija por número. La respuesta trae
+    `tokens` con el total cargado."""
+    return _g(repo.cargar_carpeta, auth.cuenta_actual(), carpeta, con_subcarpetas)
+
+
+@mcp.tool
 def cargar_contexto(entry_ids: list[str]) -> list[dict]:
     """Devuelve el `contexto` completo de varias entradas y marca su uso.
     Es la tool para cargar memorias al contexto del agente.

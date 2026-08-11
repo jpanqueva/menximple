@@ -169,6 +169,10 @@ class Navegador(App):
         self.folder = folder
         self.limit = limit
         self.marcadas: dict[str, dict] = {}   # id -> entrada (orden = orden de marcado)
+        # carpeta -> ids que marcó ella. Guarda los ids y no un contador porque al
+        # desmarcarla hay que quitar exactamente esos, y una entrada no sabe de qué
+        # carpetas cuelga: `_entrada_out` no devuelve `ancestros`.
+        self.marcadas_de: dict[str, list[str]] = {}
         self.confirmado = False
         self.cuenta = "…"
         self._gen = 0                 # descarta contextos que llegan tarde
@@ -232,9 +236,18 @@ class Navegador(App):
 
     # --- Pintado --- #
 
+    def _marcadas_de(self, folder_id: str) -> int:
+        """Cuántas de las que marcó esta carpeta siguen marcadas: el usuario puede
+        haber quitado alguna a mano después."""
+        return sum(1 for i in self.marcadas_de.get(folder_id, []) if i in self.marcadas)
+
     def _etiqueta_carpeta(self, c: dict) -> Text:
-        t = Text("▸ ", style="dim")
+        marcadas = self._marcadas_de(c["id"])
+        t = Text("✓ ", style="bold green") if marcadas else Text("▸ ", style="dim")
         t.append(c["nombre"], style="bold")
+        if marcadas:
+            t.append(f"  ({marcadas} marcada{'s' if marcadas > 1 else ''})",
+                     style="green")
         t.append(f"   {_accion(c.get('ultima_accion'))}", style="dim italic")
         return t
 
@@ -422,6 +435,9 @@ class Navegador(App):
         arbol = self.query_one("#arbol", Arbol)
         node = arbol.cursor_node
         info = (node.data or {}) if node else {}
+        if info.get("kind") == "carpeta":
+            self._marcar_carpeta(node, info["obj"])
+            return
         if info.get("kind") != "entrada":
             return
         e = info["obj"]
@@ -431,6 +447,52 @@ class Navegador(App):
             self.marcadas[e["id"]] = e
         node.set_label(self._etiqueta_entrada(e))
         self._pintar_estado()
+
+    def _marcar_carpeta(self, node, carpeta: dict) -> None:
+        """ESPACIO sobre una carpeta marca todo lo que cuelga de ella.
+
+        Las memorias se piden al servidor en vez de leer el árbol: una carpeta sin
+        abrir no tiene hijos cargados, y obligar a expandirla rama por rama para
+        poder marcarla entera vaciaría de sentido el atajo."""
+        if self._marcadas_de(carpeta["id"]):
+            self._aplicar_marcas_carpeta(node, carpeta, [], quitar=True)
+            return
+        node.set_label(Text(f"▸ {carpeta['nombre']}   buscando…", style="dim italic"))
+        self._traer_para_marcar(node, carpeta)
+
+    @work(thread=True)
+    def _traer_para_marcar(self, node, carpeta: dict) -> None:
+        try:
+            memorias = client.buscar(query="", folder_id=carpeta["id"], limit=500)
+        except Exception:
+            _log(f"marcar carpeta {carpeta['id']}: {traceback.format_exc()}")
+            memorias = []
+        self.call_from_thread(self._aplicar_marcas_carpeta, node, carpeta, memorias)
+
+    def _aplicar_marcas_carpeta(self, node, carpeta: dict, memorias: list[dict],
+                                quitar: bool = False) -> None:
+        if quitar:
+            for eid in self.marcadas_de.pop(carpeta["id"], []):
+                self.marcadas.pop(eid, None)
+        else:
+            for e in memorias:
+                self.marcadas.setdefault(e["id"], e)
+            self.marcadas_de[carpeta["id"]] = [e["id"] for e in memorias]
+            if not memorias:
+                self.notify(f"«{carpeta['nombre']}» no tiene memorias")
+        node.set_label(self._etiqueta_carpeta(carpeta))
+        self._repintar_entradas()
+        self._pintar_estado()
+
+    def _repintar_entradas(self) -> None:
+        """Marcar una carpeta cambia el ✓ de memorias que ya están a la vista."""
+        pendientes = [self.query_one("#arbol", Arbol).root]
+        while pendientes:
+            n = pendientes.pop()
+            info = n.data or {}
+            if info.get("kind") == "entrada":
+                n.set_label(self._etiqueta_entrada(info["obj"]))
+            pendientes.extend(n.children)
 
     def action_confirmar(self) -> None:
         self.confirmado = True
