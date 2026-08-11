@@ -8,6 +8,9 @@ servidor te entrega la misma metodología en el campo `instructions` del protoco
 
 ## 1. Qué es esto
 
+Se llama **menximple**, pero en el día a día se le dice **menx**. "Abre menx",
+"guarda esto en menx", "qué hay en menx" — el agente entiende todas.
+
 Un sitio donde tus memorias viven **fuera** de la conversación y sobreviven a que
 cierres la terminal, compactes el contexto o cambies de máquina. Cada cuenta tiene
 sus memorias privadas, y se identifica por su apikey.
@@ -123,6 +126,14 @@ jhon
 `arbol()` acepta `folder_id` para ver una rama sola, `profundidad` para cortar
 (lo que queda fuera se anuncia, no se esconde) y `con_memorias=False` para ver
 solo el esqueleto de carpetas.
+
+**El número es una referencia de verdad**, no solo algo que mirar: donde una tool
+pida un `entry_id` puedes pasarle `"11"` o `"#11"` igual que el uuid. Vale para
+cargar, obtener, editar, borrar y ver el historial.
+
+> **El árbol es también el rescate cuando algo no aparece buscando.** Si recuerdas
+> haber guardado algo pero no con qué palabras, pide el árbol: casi siempre está,
+> con otro nombre. Es mejor que guardarlo otra vez y acabar con duplicados.
 
 ---
 
