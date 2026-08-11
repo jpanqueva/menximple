@@ -33,6 +33,23 @@ def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> di
     return _g(repo.listar, auth.cuenta_actual(), folder_id, incluir_archivadas)
 
 
+@mcp.tool
+def arbol(folder_id: str | None = None, profundidad: int = 3,
+          con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
+    """Dibuja toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
+
+    Es la forma más barata de saber qué hay: una sola llamada en vez de ir
+    entrando carpeta por carpeta con `listar`. Úsala al empezar en una cuenta que
+    no conoces, y muéstrasela al usuario cuando tenga que elegir memorias sin el
+    selector visual — puede pedirlas por su número.
+
+    `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo que quede
+    cortado se anuncia, no se esconde); `con_memorias=False` deja solo el
+    esqueleto de carpetas."""
+    return _g(repo.arbol, auth.cuenta_actual(), folder_id, profundidad,
+              con_memorias, incluir_archivadas)
+
+
 # --- Carpetas ---
 
 @mcp.tool

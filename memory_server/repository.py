@@ -566,6 +566,84 @@ def listar(cta: str, folder_id: str | None = None,
     return out
 
 
+def arbol(cta: str, folder_id: str | None = None, profundidad: int = 3,
+          con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
+    """Dibuja el árbol de la cuenta en texto, para verlo de un vistazo.
+
+    Se lee entero de dos consultas y se arma en memoria: preguntar carpeta por
+    carpeta serían decenas de viajes para algo que casi siempre cabe en una
+    pantalla. `profundidad` cuenta desde donde se empieza; lo que queda cortado se
+    anuncia en vez de desaparecer, porque un árbol que miente sobre lo que hay es
+    peor que no tenerlo."""
+    vivas = [] if incluir_archivadas else [store.cond_viva()]
+    carpetas = store.scroll(store.CARPETAS, must=[store.cond("cuenta", cta)] + vivas,
+                            limit=10000)
+    entradas = (store.scroll(store.ENTRADAS, must=[store.cond("cuenta", cta)] + vivas,
+                             limit=10000) if con_memorias else [])
+
+    por_padre: dict[str, list[dict]] = {}
+    for c in carpetas:
+        por_padre.setdefault(c.get("parent_id") or "", []).append(c)
+    for hijos in por_padre.values():
+        hijos.sort(key=lambda c: _normaliza(c.get("nombre", "")))
+
+    por_carpeta: dict[str, list[dict]] = {}
+    for e in entradas:
+        por_carpeta.setdefault(e.get("folder_id") or "", []).append(e)
+    for lista in por_carpeta.values():
+        lista.sort(key=lambda e: e.get("numero") or 0)
+
+    if folder_id:
+        raiz = store.get(store.CARPETAS, folder_id)
+        if not raiz or raiz.get("cuenta") != cta:
+            raise MemoriaError(f"carpeta {folder_id} no existe en la cuenta '{cta}'")
+        cabecera = "/".join(raiz.get("path", []) + [raiz["nombre"]])
+    else:
+        folder_id, cabecera = "", cta
+
+    lineas: list[str] = [cabecera]
+    cuenta_c = cuenta_e = 0
+    truncado = False
+
+    def pinta(fid: str, sangria: str, nivel: int) -> None:
+        nonlocal cuenta_c, cuenta_e, truncado
+        hijos = por_padre.get(fid, [])
+        memorias = por_carpeta.get(fid, []) if fid else []
+        if nivel >= profundidad and (hijos or memorias):
+            truncado = True
+            resto = []
+            if hijos:
+                resto.append(f"{len(hijos)} carpeta(s)")
+            if memorias:
+                resto.append(f"{len(memorias)} memoria(s)")
+            lineas.append(f"{sangria}└── … {' y '.join(resto)} más (sube `profundidad`)")
+            return
+
+        items = [("c", c) for c in hijos] + [("e", e) for e in memorias]
+        for i, (clase, obj) in enumerate(items):
+            ultimo = i == len(items) - 1
+            rama = "└── " if ultimo else "├── "
+            paso = "    " if ultimo else "│   "
+            if clase == "c":
+                cuenta_c += 1
+                dentro = len(por_carpeta.get(obj["_id"], []))
+                sufijo = f"  ({dentro})" if dentro and nivel + 1 >= profundidad else ""
+                lineas.append(f"{sangria}{rama}{obj['nombre']}/{sufijo}")
+                pinta(obj["_id"], sangria + paso, nivel + 1)
+            else:
+                cuenta_e += 1
+                num = f"#{obj.get('numero')}" if obj.get("numero") else "#?"
+                marca = " [borrada]" if obj.get("archivada") else ""
+                lineas.append(f"{sangria}{rama}{num:<5}{obj['titulo']}"
+                              f"  [{obj.get('tipo', '?')}]{marca}")
+
+    pinta(folder_id, "", 0)
+    if len(lineas) == 1:
+        lineas.append("└── (vacío)")
+    return {"texto": "\n".join(lineas), "carpetas": cuenta_c, "memorias": cuenta_e,
+            "truncado": truncado}
+
+
 def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | None,
           incluir_archivadas: bool = False) -> list:
     must = [store.cond("cuenta", cta)]
