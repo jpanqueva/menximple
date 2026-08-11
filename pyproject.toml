@@ -12,7 +12,7 @@ authors = [{ name = "Jhon Jairo Panqueva" }]
 # Dependencias del CLIENTE (lo que se instala en las consolas):
 dependencies = [
     "fastmcp>=2.9",
-    "questionary>=2.0",
+    "textual>=0.80",   # navegador de memorias en dos paneles
 ]
 
 [project.optional-dependencies]

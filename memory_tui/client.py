@@ -55,6 +55,11 @@ def cargar_contexto(entry_ids, apikey=None):
     return llamar("cargar_contexto", apikey=apikey, entry_ids=entry_ids)
 
 
+def obtener_entrada(entry_id, marcar_uso=True, apikey=None):
+    """Trae una entrada con su `contexto`. `marcar_uso=False` = solo previsualizar."""
+    return llamar("obtener_entrada", apikey=apikey, entry_id=entry_id, marcar_uso=marcar_uso)
+
+
 def crear_carpeta(nombre, parent_id=None, descripcion=None, apikey=None):
     return llamar("crear_carpeta", apikey=apikey, nombre=nombre,
                   parent_id=parent_id, descripcion=descripcion)

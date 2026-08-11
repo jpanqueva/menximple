@@ -33,12 +33,37 @@ def _vector(resumen: str) -> list[float]:
     return store.ceros()
 
 
+def _tokens(texto: str) -> int:
+    """Tamaño del contexto en tokens, **aproximado** (~4 caracteres por token).
+
+    Sirve para que el usuario sepa cuánto le cuesta cargar una memoria antes de
+    hacerlo; no pretende igualar al tokenizador del modelo."""
+    return (len(texto or "") + 3) // 4
+
+
+def _accion_out(p: dict) -> dict | None:
+    a = p.get("ultima_accion")
+    if isinstance(a, dict) and a.get("tipo"):
+        return {"tipo": a["tipo"], "fecha": store.iso(a.get("ts")), "detalle": a.get("detalle")}
+
+    # Lo guardado antes de que existiera el campo: se deduce de las marcas de tiempo.
+    usada, editada, creada = p.get("last_used"), p.get("updated_at"), p.get("created_at")
+    if usada and (not editada or usada >= editada):
+        return {"tipo": "cargada", "fecha": store.iso(usada), "detalle": None}
+    if editada and creada and editada > creada:
+        return {"tipo": "editada", "fecha": store.iso(editada), "detalle": None}
+    if creada:
+        return {"tipo": "creada", "fecha": store.iso(creada), "detalle": None}
+    return None
+
+
 def _carpeta_out(p: dict) -> dict:
     return {
         "id": p["_id"], "cuenta": p["cuenta"], "nombre": p["nombre"],
         "parent_id": p.get("parent_id") or None,
         "path": p.get("path", []), "descripcion": p.get("descripcion"),
         "created_at": store.iso(p.get("created_at")), "updated_at": store.iso(p.get("updated_at")),
+        "ultima_accion": _accion_out(p),
     }
 
 
@@ -48,12 +73,33 @@ def _entrada_out(p: dict, con_contexto: bool = False) -> dict:
         "titulo": p["titulo"], "resumen": p["resumen"], "tipo": p["tipo"],
         "tags": p.get("tags", []), "path": p.get("path", []),
         "version": p.get("version", 1), "use_count": p.get("use_count", 0),
+        "tokens": _tokens(p.get("contexto", "")),
         "created_at": store.iso(p.get("created_at")), "updated_at": store.iso(p.get("updated_at")),
         "last_used": store.iso(p.get("last_used")),
+        "ultima_accion": _accion_out(p),
     }
     if con_contexto:
         out["contexto"] = p.get("contexto", "")
     return out
+
+
+# --- Última acción: qué le pasó de último a una memoria (y a sus carpetas) --- #
+
+def _accion(tipo: str, ts: float, detalle: str | None = None) -> dict:
+    return {"tipo": tipo, "ts": ts, "detalle": detalle}
+
+
+def _propagar_accion(cta: str, folder_id: str | None, accion: dict) -> None:
+    """Marca la carpeta de la entrada y sus ancestros con la misma acción.
+
+    Sin esto una carpeta padre se vería inactiva aunque sus memorias se usen a diario."""
+    if not folder_id:
+        return
+    f = store.get(store.CARPETAS, folder_id)
+    if not f or f.get("cuenta") != cta:
+        return
+    for fid in [folder_id] + list(f.get("ancestros", [])):
+        store.set_payload(store.CARPETAS, fid, {"ultima_accion": accion})
 
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +148,8 @@ def crear_carpeta(cta: str, nombre: str, parent_id: str | None = None,
     pid = store.nuevo_id()
     payload = {"_id": pid, "cuenta": cta, "nombre": nombre, "parent_id": parent_ref,
                "ancestros": ancestros, "path": path, "descripcion": descripcion,
-               "created_at": ts, "updated_at": ts}
+               "created_at": ts, "updated_at": ts,
+               "ultima_accion": _accion("creada", ts)}
     store.upsert(store.CARPETAS, pid, payload)
     return _carpeta_out(payload)
 
@@ -139,7 +186,9 @@ def editar_carpeta(cta: str, folder_id: str, nombre: str | None = None,
     if not cambios:
         raise MemoriaError("no se enviaron campos para editar")
 
-    cambios["updated_at"] = store.now_ts()
+    ts = store.now_ts()
+    cambios["updated_at"] = ts
+    cambios["ultima_accion"] = _accion("movida" if mover_a is not None else "editada", ts)
     store.set_payload(store.CARPETAS, folder_id, cambios)
     if mover_a is not None or "nombre" in cambios:
         _recalcular_subarbol(cta, folder_id)
@@ -189,15 +238,18 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
         "tipo": tipo, "tags": tags or [],
         "created_at": ts, "updated_at": ts, "use_count": 0,
         "version": 1, "historial": [],
+        "ultima_accion": _accion("creada", ts),
         "embedding_model": settings.embedding_model if settings.embeddings_enabled else None,
     }
     store.upsert(store.ENTRADAS, pid, payload, vector=_vector(resumen))
+    _propagar_accion(cta, folder_id, payload["ultima_accion"])
     return _entrada_out(payload)
 
 
 def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
                    resumen: str | None = None, contexto: str | None = None,
-                   tipo: str | None = None, tags: list[str] | None = None) -> dict:
+                   tipo: str | None = None, tags: list[str] | None = None,
+                   mover_a: str | None = None) -> dict:
     e = store.get(store.ENTRADAS, entry_id, con_vector=True)
     if not e or e.get("cuenta") != cta:
         raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
@@ -213,6 +265,18 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
         cambios["tipo"] = _valida_tipo(tipo)
     if tags is not None:
         cambios["tags"] = tags
+
+    origen = e.get("folder_id")
+    if mover_a is not None:
+        destino = store.get(store.CARPETAS, _req(mover_a, "mover_a"))
+        if not destino or destino.get("cuenta") != cta:
+            raise MemoriaError(
+                f"carpeta destino {mover_a} no existe en la cuenta '{cta}'; "
+                "una entrada siempre vive dentro de una carpeta")
+        cambios["folder_id"] = mover_a
+        cambios["ancestros"] = destino.get("ancestros", []) + [destino["_id"]]
+        cambios["path"] = destino.get("path", []) + [destino["nombre"]]
+
     if not cambios:
         raise MemoriaError("no se enviaron campos para editar")
 
@@ -224,20 +288,26 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
     vector_actual = e.pop("__vector__", None) or store.ceros()
     nuevo = {k: v for k, v in e.items() if k != "__vector__"}
     nuevo.update(cambios)
-    nuevo["updated_at"] = store.now_ts()
+    ts = store.now_ts()
+    nuevo["updated_at"] = ts
     nuevo["version"] = e.get("version", 1) + 1
     nuevo["historial"] = e.get("historial", []) + [snapshot]
+    nuevo["ultima_accion"] = _accion("movida" if mover_a is not None else "editada", ts)
 
     vector = _vector(nuevo["resumen"]) if "resumen" in cambios else vector_actual
     store.upsert(store.ENTRADAS, entry_id, nuevo, vector=vector)
+    _propagar_accion(cta, nuevo.get("folder_id"), nuevo["ultima_accion"])
+    if mover_a is not None and origen and origen != mover_a:
+        _propagar_accion(cta, origen, _accion("movida", ts, detalle=nuevo["titulo"]))
     return _entrada_out(nuevo)
 
 
-def obtener_entrada(cta: str, entry_id: str) -> dict:
+def obtener_entrada(cta: str, entry_id: str, marcar_uso: bool = True) -> dict:
     e = store.get(store.ENTRADAS, entry_id)
     if not e or e.get("cuenta") != cta:
         raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
-    _marcar_uso(e)
+    if marcar_uso:  # previsualizar en el navegador no debe contar como cargarla
+        _marcar_uso(e)
     return _entrada_out(e, con_contexto=True)
 
 
@@ -257,8 +327,11 @@ def cargar_contexto(cta: str, entry_ids: list[str]) -> list[dict]:
 def _marcar_uso(e: dict) -> None:
     e["use_count"] = e.get("use_count", 0) + 1  # refleja el incremento en el objeto devuelto
     e["last_used"] = store.now_ts()
+    e["ultima_accion"] = _accion("cargada", e["last_used"])
     store.set_payload(store.ENTRADAS, e["_id"],
-                      {"last_used": e["last_used"], "use_count": e["use_count"]})
+                      {"last_used": e["last_used"], "use_count": e["use_count"],
+                       "ultima_accion": e["ultima_accion"]})
+    _propagar_accion(e["cuenta"], e.get("folder_id"), e["ultima_accion"])
 
 
 # --------------------------------------------------------------------------- #

@@ -62,16 +62,19 @@ def crear_entrada(folder_id: str, titulo: str, resumen: str, contexto: str,
 @mcp.tool
 def editar_entrada(entry_id: str, titulo: str | None = None, resumen: str | None = None,
                    contexto: str | None = None, tipo: str | None = None,
-                   tags: list[str] | None = None) -> dict:
+                   tags: list[str] | None = None, mover_a: str | None = None) -> dict:
     """Edita una entrada. Guarda snapshot de la versión previa en el historial y
-    re-embebe si cambió el `resumen`."""
-    return _g(repo.editar_entrada, auth.cuenta_actual(), entry_id, titulo, resumen, contexto, tipo, tags)
+    re-embebe si cambió el `resumen`. `mover_a` = id de la carpeta destino (una
+    entrada siempre vive dentro de una carpeta, así que no admite raíz)."""
+    return _g(repo.editar_entrada, auth.cuenta_actual(), entry_id, titulo, resumen,
+              contexto, tipo, tags, mover_a)
 
 
 @mcp.tool
-def obtener_entrada(entry_id: str) -> dict:
-    """Devuelve una entrada completa (incluye `contexto`) y marca su uso."""
-    return _g(repo.obtener_entrada, auth.cuenta_actual(), entry_id)
+def obtener_entrada(entry_id: str, marcar_uso: bool = True) -> dict:
+    """Devuelve una entrada completa (incluye `contexto`) y marca su uso.
+    Usa `marcar_uso=False` solo para previsualizar sin registrar la carga."""
+    return _g(repo.obtener_entrada, auth.cuenta_actual(), entry_id, marcar_uso)
 
 
 @mcp.tool
