@@ -27,6 +27,7 @@ embeddings = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 menximple = "memory_tui.launcher:main"          # cliente: selector TUI / modo chat
+menximple-mcp = "memory_tui.mcp_local:main"     # MCP local (stdio): el selector como tool
 menximple-server = "memory_server.server:main"  # servidor MCP
 
 [tool.setuptools]

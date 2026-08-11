@@ -32,7 +32,10 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: in
     if folder:
         cmd += ["--folder", folder]
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform.startswith("win") else 0
-    p = subprocess.Popen(cmd, creationflags=flags)
+    # Sin consola propia la TUI heredaria nuestro stdout, y si quien nos llama es el
+    # MCP local (stdio) eso corromperia el protocolo: en ese caso, a /dev/null.
+    salida = None if flags else subprocess.DEVNULL
+    p = subprocess.Popen(cmd, creationflags=flags, stdout=salida, stderr=salida)
     try:
         p.wait(timeout=timeout)          # bloquea hasta que la ventana muere
     except subprocess.TimeoutExpired:
@@ -45,16 +48,19 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: in
         return []
 
 
-def _select(a) -> dict:
+def seleccionar(query: str = "", folder: str | None = None,
+                limit: int = 20, timeout: int = 180) -> dict:
+    """Abre el selector y devuelve lo elegido. Es la entrada única: la usan el CLI
+    (`menximple select`) y la tool `abrir_selector` del MCP local."""
     if not _hay_escritorio():
-        cands = client.buscar(query=a.query, limit=a.limit) if a.query \
-            else client.listar_recientes(limit=a.limit)
+        cands = client.buscar(query=query, limit=limit) if query \
+            else client.listar_recientes(limit=limit)
         return {"modo": "chat", "candidatos": [
             {k: c.get(k) for k in ("id", "titulo", "resumen", "tipo", "path")} for c in cands]}
 
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
-    ids = _spawn_tui(out, a.query, a.folder, a.limit, a.timeout)
+    ids = _spawn_tui(out, query, folder, limit, timeout)
     try:
         os.remove(out)
     except OSError:
@@ -67,9 +73,17 @@ def _select(a) -> dict:
     return {"modo": "tui", "seleccion": client.cargar_contexto(ids)}
 
 
-def _load(a) -> dict:
-    ids = [x.strip() for x in a.ids.split(",") if x.strip()]
+def cargar(ids: list[str]) -> dict:
+    """Trae el contexto completo de esas memorias (y marca su uso)."""
     return {"seleccion": client.cargar_contexto(ids)}
+
+
+def _select(a) -> dict:
+    return seleccionar(a.query, a.folder, a.limit, a.timeout)
+
+
+def _load(a) -> dict:
+    return cargar([x.strip() for x in a.ids.split(",") if x.strip()])
 
 
 def main() -> None:
