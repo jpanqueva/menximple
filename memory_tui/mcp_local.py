@@ -39,12 +39,13 @@ mcp = FastMCP("menximple-selector", instructions=INSTRUCCIONES)
 
 @mcp.tool
 async def abrir_selector(query: str = "", folder: str | None = None,
-                         limit: int = 20, timeout: int = 120) -> dict:
+                         limit: int = 20, timeout: int = 100) -> dict:
     """Abre el selector de memorias en el escritorio del usuario y espera su elección.
 
     `query` filtra por tema (vacío = las memorias más recientes). `timeout` son los
-    segundos antes de cerrar la ventana y dar la selección por cancelada; súbelo solo
-    si el usuario pide más tiempo, y que sea menor al timeout de tools del cliente."""
+    segundos antes de cerrar la ventana y dar la selección por cancelada. Déjalo por
+    debajo de 120: Claude Code corta la llamada ahí y la manda a segundo plano
+    (la ventana sigue viva, pero el resultado ya no llega en la misma respuesta)."""
     return await asyncio.to_thread(launcher.seleccionar, query, folder, limit, timeout)
 
 
@@ -54,6 +55,17 @@ async def cargar_memorias(ids: list[str]) -> dict:
 
     Es el segundo paso del modo chat: después de que el usuario elige por número."""
     return await asyncio.to_thread(launcher.cargar, ids)
+
+
+@mcp.tool
+async def olvidar_cargadas() -> dict:
+    """Olvida qué memorias se cargaron en esta conversación (las deja de marcar ●).
+
+    Llámala cuando el contexto se haya vaciado y lo cargado ya no esté presente:
+    típicamente **después de un compact**, del que ningún servidor MCP se entera.
+    No la llames por otras razones: perder esas marcas hace que el usuario vuelva
+    a cargar lo que ya tenía."""
+    return await asyncio.to_thread(launcher.olvidar, None)
 
 
 def main() -> None:

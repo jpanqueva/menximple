@@ -21,7 +21,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Markdown, Static, Tree
 
-from . import client
+from . import client, sesion
 
 # Se ejecuta en una ventana aparte: si algo revienta ahí, no lo ve nadie.
 LOG = os.path.join(tempfile.gettempdir(), "menximple-tui.log")
@@ -140,19 +140,24 @@ class Navegador(App):
     """
 
     BINDINGS = [  # ESPACIO lo declara el árbol, para poder ganarle al Tree de Textual
-        ("f2", "confirmar", "Cargar selección"),
+        Binding("f2,ctrl+g", "confirmar", "Cargar selección"),
         ("escape", "cancelar", "Cancelar"),
         ("slash", "enfocar_busqueda", "Buscar"),
+        Binding("ctrl+l", "olvidar_cargadas", "Olvidar cargadas"),
         Binding("pagedown", "desplazar(1)", "Bajar detalle", show=False),
         Binding("pageup", "desplazar(-1)", "Subir detalle", show=False),
     ]
 
-    def __init__(self, out: str, query: str = "", folder: str | None = None, limit: int = 20):
+    def __init__(self, out: str, query: str = "", folder: str | None = None,
+                 limit: int = 20, ses: str | None = None):
         super().__init__()
         self.out = out
         self.query_inicial = query
         self.folder = folder
         self.limit = limit
+        self.sesion = sesion.id_actual(ses)
+        # Ya cargadas en esta conversación: se pintan distinto para no repetirlas.
+        self.cargadas: set[str] = set(sesion.leer(self.sesion))
         self.marcadas: dict[str, dict] = {}   # id -> entrada (orden = orden de marcado)
         self.confirmado = False
         self.cuenta = "…"
@@ -222,8 +227,14 @@ class Navegador(App):
 
     def _etiqueta_entrada(self, e: dict) -> Text:
         marcada = e["id"] in self.marcadas
-        t = Text("✓ " if marcada else "  ", style="bold green" if marcada else "")
-        t.append(e["titulo"], style="bold" if marcada else "")
+        ya = e["id"] in self.cargadas
+        if marcada:
+            t = Text("✓ ", style="bold green")
+        elif ya:
+            t = Text("● ", style="blue")       # ya está en el contexto de esta charla
+        else:
+            t = Text("  ")
+        t.append(e["titulo"], style="bold" if marcada else ("dim" if ya else ""))
         t.append(f"  {e.get('tipo', '')}", style=COLOR_TIPO.get(e.get("tipo"), "white"))
         t.append(f" · {_tokens(e.get('tokens'))}", style="dim")
         return t
@@ -261,7 +272,10 @@ class Navegador(App):
         if info.get("kind") == "entrada":
             t = Text()
             t.append(f"{obj['titulo']}\n", style="bold")
-            t.append(f"{obj.get('resumen', '')}\n\n", style="italic dim")
+            t.append(f"{obj.get('resumen', '')}\n", style="italic dim")
+            if obj["id"] in self.cargadas:
+                t.append("● ya cargada en esta conversación\n", style="blue")
+            t.append("\n")
             for k, v in (
                 ("tipo", obj.get("tipo", "—")),
                 ("carpeta", " / ".join(obj.get("path") or []) or "—"),
@@ -371,6 +385,22 @@ class Navegador(App):
         self.confirmado = True
         self.exit()
 
+    def action_olvidar_cargadas(self) -> None:
+        """Tras un compact el contexto se vacía sin que nadie avise: esto lo refleja."""
+        sesion.limpiar(self.sesion)
+        self.cargadas.clear()
+        self._repintar_etiquetas()
+        self.notify("Marcas de 'ya cargada' borradas para esta conversación")
+
+    def _repintar_etiquetas(self) -> None:
+        pendientes = [self.query_one("#arbol", Arbol).root]
+        while pendientes:
+            n = pendientes.pop()
+            info = n.data or {}
+            if info.get("kind") == "entrada":
+                n.set_label(self._etiqueta_entrada(info["obj"]))
+            pendientes.extend(n.children)
+
     def action_cancelar(self) -> None:
         self.marcadas.clear()
         self.exit()
@@ -395,6 +425,7 @@ def main() -> None:
     ap.add_argument("--query", default="")
     ap.add_argument("--folder", default=None)
     ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--sesion", default=None, help="id de la conversación de Claude Code")
     a = ap.parse_args()
 
     # La consola nueva de Windows no arranca en UTF-8 y la interfaz usa ▸ ✓ ─.
@@ -404,7 +435,7 @@ def main() -> None:
         except (AttributeError, OSError):
             pass
 
-    app = Navegador(a.out, a.query, a.folder, a.limit)
+    app = Navegador(a.out, a.query, a.folder, a.limit, a.sesion)
     try:
         app.run()
     except Exception as e:  # frontera: el launcher no puede quedarse esperando a ciegas

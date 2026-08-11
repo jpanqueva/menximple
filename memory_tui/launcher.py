@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 
-from . import client
+from . import client, sesion
 
 
 def _hay_escritorio() -> bool:
@@ -28,7 +28,7 @@ def _hay_escritorio() -> bool:
 
 def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: int):
     cmd = [sys.executable, "-m", "memory_tui.browser", "--out", out,
-           "--query", query, "--limit", str(limit)]
+           "--query", query, "--limit", str(limit), "--sesion", sesion.id_actual()]
     if folder:
         cmd += ["--folder", folder]
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform.startswith("win") else 0
@@ -71,12 +71,21 @@ def seleccionar(query: str = "", folder: str | None = None,
         return {"modo": "tui", "cancelado": True, "motivo": "timeout"}
     if not ids:
         return {"modo": "tui", "cancelado": True, "motivo": "sin_seleccion"}
-    return {"modo": "tui", "seleccion": client.cargar_contexto(ids)}
+    return {"modo": "tui", "seleccion": cargar(ids)["seleccion"]}
 
 
 def cargar(ids: list[str]) -> dict:
     """Trae el contexto completo de esas memorias (y marca su uso)."""
-    return {"seleccion": client.cargar_contexto(ids)}
+    seleccion = client.cargar_contexto(ids)
+    sesion.agregar(sesion.id_actual(), ids)  # para pintarlas como ya cargadas
+    return {"seleccion": seleccion}
+
+
+def olvidar(ses: str | None = None) -> dict:
+    """Borra el registro de 'ya cargadas' de esta conversación (post-compact)."""
+    ses = sesion.id_actual(ses)
+    sesion.limpiar(ses)
+    return {"sesion": ses, "cargadas": []}
 
 
 def _select(a) -> dict:
