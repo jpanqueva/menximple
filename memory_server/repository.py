@@ -4,7 +4,9 @@ Multi-cuenta con aislamiento fail-closed: `cta` (slug ya autenticado por apikey)
 entra en TODO filtro y se verifica al recuperar por id — nunca se cruza data entre
 cuentas. Validación estricta y fail-fast: lo inválido lanza MemoriaError con mensaje
 accionable; los errores inesperados se propagan sin capturar."""
+import re
 import secrets
+import unicodedata
 
 from . import store
 from .config import settings
@@ -97,6 +99,42 @@ def _siguiente_numero(cta: str) -> int:
     ultimas = store.scroll(store.ENTRADAS, must=[store.cond("cuenta", cta)],
                            order_key="numero", limit=1)
     return int(ultimas[0].get("numero") or 0) + 1 if ultimas else 1
+
+
+# --- Texto de búsqueda: lo que de verdad se indexa para encontrar una memoria --- #
+
+_PALABRAS = re.compile(r"[a-z0-9]{2,}")
+
+
+def _normaliza(texto: str) -> str:
+    """Minúsculas y sin tildes.
+
+    El índice de Qdrant baja a minúsculas pero **no** ignora los acentos, así que
+    sin esto 'facturación' no encuentra 'Facturacion'. Hay que aplicarlo a lo que
+    se guarda Y a lo que se busca; si solo se hace en un lado, no sirve de nada."""
+    t = unicodedata.normalize("NFD", texto or "").lower()
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")
+
+
+def _texto_busqueda(titulo: str, resumen: str, tags: list[str] | None) -> str:
+    """Campo aparte con título + resumen + tags ya normalizados. Se indexa este y
+    no los originales: así el acento deja de importar sin tocar lo que ve el usuario."""
+    return _normaliza(" ".join([titulo or "", resumen or "", " ".join(tags or [])]))
+
+
+def _palabras(query: str) -> list[str]:
+    return _PALABRAS.findall(_normaliza(query))
+
+
+def _puntaje(p: dict, palabras: list[str]) -> int:
+    """Cuántas palabras del query aparecen (como prefijo) en título/resumen/tags.
+
+    Es lo que permite pedir con una frase entera: casa con **alguna** palabra, pero
+    la que casa con más queda arriba."""
+    tokens = _PALABRAS.findall(p.get("busqueda") or
+                               _texto_busqueda(p.get("titulo", ""), p.get("resumen", ""),
+                                               p.get("tags")))
+    return sum(1 for w in palabras if any(tk.startswith(w) for tk in tokens))
 
 
 def _como_numero(query: str) -> int | None:
@@ -269,6 +307,7 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
         "path": f.get("path", []) + [f["nombre"]],
         "titulo": titulo, "resumen": resumen, "contexto": contexto,
         "tipo": tipo, "tags": tags or [],
+        "busqueda": _texto_busqueda(titulo, resumen, tags),
         "created_at": ts, "updated_at": ts, "use_count": 0,
         "version": 1, "historial": [],
         "ultima_accion": _accion("creada", ts),
@@ -318,6 +357,9 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
     nuevo = {k: v for k, v in e.items() if k != "__vector__"}
     nuevo.update(cambios)
     ts = store.now_ts()
+    if {"titulo", "resumen", "tags"} & cambios.keys():   # si no, quedaría buscándose por lo viejo
+        nuevo["busqueda"] = _texto_busqueda(nuevo["titulo"], nuevo["resumen"],
+                                            nuevo.get("tags"))
     nuevo["updated_at"] = ts
     nuevo["version"] = e.get("version", 1) + 1
     nuevo["historial"] = e.get("historial", []) + [snapshot]
@@ -533,10 +575,10 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
         return [_entrada_out(p) for p in
                 store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)]
 
-    def busca(*opciones) -> list[dict]:
+    def busca(opciones, tope: int) -> list[dict]:
         from qdrant_client.models import Filter
-        return store.scroll(store.ENTRADAS, must=must + [Filter(should=list(opciones))],
-                            order_key="updated_at", limit=limit)
+        return store.scroll(store.ENTRADAS, must=must + [Filter(should=opciones)],
+                            order_key="updated_at", limit=tope)
 
     # Un query que es solo un número se lee como el consecutivo, y NO como texto:
     # el contexto va indexado por palabras, así que "3" traería toda memoria que
@@ -545,13 +587,25 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
     # se reintenta: ahí el usuario ya dijo explícitamente que iba por número.
     numero = _como_numero(query)
     if numero is not None:
-        res = busca(store.cond("numero", numero))
+        res = busca([store.cond("numero", numero)], limit)
         if res or query.strip().startswith("#"):
             return [_entrada_out(p) for p in res]
 
-    return [_entrada_out(p) for p in busca(store.cond_text("titulo", query),
-                                           store.cond_text("resumen", query),
-                                           store.cond_text("contexto", query))]
+    # El usuario pide con una frase ("crear una factura con el facturador de la
+    # DIAN"), no con la palabra exacta que quedó guardada. Qdrant exige que estén
+    # TODAS las palabras del texto que se le pase, así que una sola que no case
+    # deja fuera la memoria correcta: se busca palabra por palabra, con OR, y se
+    # ordena aquí por cuántas casaron. El contexto va con la frase completa, para
+    # que sume solo cuando de verdad habla del tema.
+    palabras = _palabras(query)
+    if not palabras:
+        return []
+    opciones = [store.cond_text("busqueda", w) for w in palabras]
+    opciones.append(store.cond_text("contexto", query))
+
+    candidatos = busca(opciones, max(limit * 5, 50))
+    candidatos.sort(key=lambda p: (-_puntaje(p, palabras), -(p.get("updated_at") or 0)))
+    return [_entrada_out(p) for p in candidatos[:limit]]
 
 
 def buscar_relacionadas(cta: str, texto: str | None = None,

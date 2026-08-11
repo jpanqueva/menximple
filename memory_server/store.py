@@ -118,11 +118,12 @@ def ensure_collections() -> None:
         "cuenta": kw, "folder_id": kw, "ancestros": kw, "tipo": kw, "tags": kw,
         "updated_at": flt, "last_used": flt, "archivada": bol,
         "numero": PayloadSchemaType.INTEGER,
-        # Título y resumen se buscan escribiendo a medias ("corr" -> "Correlativo"),
-        # así que van indexados por prefijo. El contexto no: indexar cada prefijo de
-        # cada palabra de un texto largo multiplica el índice sin ganar nada, porque
-        # lo que el usuario busca a tientas es el nombre, no el cuerpo.
-        "titulo": PREFIJO, "resumen": PREFIJO, "contexto": txt,
+        # `busqueda` = título + resumen + tags, en minúsculas y sin tildes. Es el
+        # campo por el que se busca de verdad, indexado por prefijo para poder
+        # escribir a medias ("corr" -> "Correlativo"). El contexto no: indexar cada
+        # prefijo de cada palabra de un texto largo multiplica el índice sin ganar
+        # nada, porque lo que se busca a tientas es el nombre, no el cuerpo.
+        "busqueda": PREFIJO, "contexto": txt,
     })
 
 
