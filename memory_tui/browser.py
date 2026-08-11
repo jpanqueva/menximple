@@ -33,6 +33,19 @@ class Arbol(Tree):
         self.app.action_marcar()
 
 
+class Buscador(Input):
+    """Caja de búsqueda de la que se puede salir: ABAJO y ESC devuelven el foco
+    a la lista, para no quedar atrapado escribiendo."""
+
+    BINDINGS = [
+        Binding("down", "ir_a_lista", "Ir a la lista", show=False),
+        Binding("escape", "ir_a_lista", "Volver a la lista", show=False),
+    ]
+
+    def action_ir_a_lista(self) -> None:
+        self.app.query_one("#arbol", Arbol).focus()
+
+
 # Color por tipo de memoria: el mismo criterio en el árbol y en la ficha.
 COLOR_TIPO = {"credencial": "red", "skill": "cyan",
               "general": "green", "historical": "yellow"}
@@ -77,7 +90,8 @@ class Navegador(App):
 
     CSS = """
     #izq { width: 48%; border-right: solid $accent; }
-    #buscador { border: none; background: $boost; margin: 0; }
+    #buscador { border: round $accent; background: $surface; margin: 1 1 0 1; }
+    #buscador:focus { border: round $success; }
     #arbol { padding: 0 1; height: 1fr; }
     #der { width: 1fr; padding: 1 2; }
     #ficha { height: auto; }
@@ -98,6 +112,7 @@ class Navegador(App):
         self.limit = limit
         self.marcadas: dict[str, dict] = {}   # id -> entrada (orden = orden de marcado)
         self.confirmado = False
+        self.cuenta = "…"
 
     # --- Layout --- #
 
@@ -105,7 +120,7 @@ class Navegador(App):
         yield Header(show_clock=False)
         with Horizontal():
             with Vertical(id="izq"):
-                yield Input(placeholder="Buscar y Enter (vacío = todo)", id="buscador")
+                yield Buscador(placeholder="tema y Enter · vacío = todo", id="buscador")
                 yield Arbol("memorias", id="arbol")
             with VerticalScroll(id="der"):
                 yield Static(id="ficha")
@@ -113,7 +128,7 @@ class Navegador(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.title = "menximple"
+        self.query_one("#buscador", Buscador).border_title = "Buscar"
         arbol = self.query_one("#arbol", Arbol)
         arbol.show_root = False
         arbol.focus()
@@ -159,6 +174,9 @@ class Navegador(App):
         return t
 
     def _pintar_hijos(self, node, data: dict) -> None:
+        if data.get("cuenta"):     # la cuenta la resuelve el servidor a partir de la apikey
+            self.cuenta = data["cuenta"]
+            self._pintar_estado()
         node.remove_children()
         for c in data.get("carpetas", []):
             hijo = node.add(self._etiqueta_carpeta(c), data={"kind": "carpeta", "obj": c})
@@ -224,7 +242,8 @@ class Navegador(App):
             ctx.update("")
 
     def _pintar_estado(self) -> None:
-        """El contador vive en el subtítulo: el Footer ya ocupa la línea de abajo."""
+        """Cuenta y selección viven en el título: el Footer ya ocupa la línea de abajo."""
+        self.title = f"menximple · cuenta {self.cuenta}"
         n = len(self.marcadas)
         if not n:
             self.sub_title = "ninguna marcada"
