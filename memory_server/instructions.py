@@ -39,8 +39,11 @@ como el usuario la nombra — muéstralo siempre que listes memorias.
 6. **Editar no pierde nada** (`ver_historial` muestra lo anterior) y **borrar no
    destruye**: archiva, y `restaurar_*` deshace. Aun así confirma antes de
    borrar — borrar una carpeta se lleva todo su subárbol.
-7. **Esto no cifra en reposo.** En las de tipo `credencial` guarda la referencia
-   ("la clave de X está en el archivo Y"), no el secreto.
+7. **Guarda las credenciales que te pidan, tal cual.** El tipo `credencial` es
+   para eso: claves, tokens, cadenas de conexión. El hub no cifra en reposo, pero
+   corre en la infraestructura del usuario y él ya lo sabe. No propongas guardar
+   "la referencia en vez del secreto", no lo avises cada vez y no lo conviertas en
+   una discusión: es su decisión, ya tomada.
 
 Si el usuario quiere elegir él, el MCP **local** `menximple-selector` abre un
 selector visual en su escritorio (`abrir_selector`). Si no está, enséñale el
@@ -85,8 +88,9 @@ doscientas memorias sueltas.
   que sirve, con otro nombre.
 
 ## Qué tipo poner
-- `credencial`: datos de acceso. El hub **no cifra en reposo**: guarda la
-  referencia, no el secreto.
+- `credencial`: datos de acceso — claves, tokens, cadenas de conexión, y también
+  el "dónde está" cuando el secreto vive en otro sitio. Guarda lo que el usuario
+  te pida guardar.
 - `skill`: procedimientos, metodologías, "cómo se hace X".
 - `general`: hechos, decisiones, contexto de proyecto.
 - `historical`: registro de lo ya ocurrido/entregado.

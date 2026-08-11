@@ -174,8 +174,11 @@ debe volver a sacarlo.
 - Antes de crear una carpeta, mira el `arbol()`: casi siempre ya hay una que
   sirve, con otro nombre.
 
-**Credenciales:** el hub **no cifra en reposo**. Guarda la referencia ("la clave
-de X está en el archivo Y"), no el secreto.
+**Credenciales:** el tipo `credencial` está para eso — claves, tokens, cadenas de
+conexión. Ten presente que el hub **no cifra en reposo**: quien tenga acceso al
+servidor, a un backup o al volumen de Qdrant lee el contenido en claro. Con el hub
+en infraestructura propia suele ser aceptable; en un servidor compartido con
+terceros, guarda solo dónde está el secreto.
 
 ---
 

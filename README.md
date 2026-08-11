@@ -71,8 +71,10 @@ Edita `version` en `pyproject.toml`, commit, `git tag vX.Y.Z && git push --tags`
 En las consolas: `pipx install --force "git+https://github.com/jpanqueva/menximple@main"`.
 
 ## Pendientes
-- **No cifra en reposo.** Las memorias de tipo `credencial` deberían guardar la
-  referencia, no el secreto. Endurecimiento (cifrado, auditoría) diferido.
+- **No cifra en reposo.** Las memorias de tipo `credencial` se guardan en claro:
+  quien tenga el servidor, un backup o el volumen de Qdrant las lee. Aceptable en
+  infraestructura propia; en un servidor compartido con terceros, guarda solo la
+  referencia. Cifrado y auditoría, diferidos.
 - Embeddings apagados a propósito: encenderlos hoy rompería la búsqueda por
   número y por prefijo, porque el camino vectorial sustituye al léxico en vez de
   sumarse. Tendría que ser híbrido, con mínimo de parecido.
