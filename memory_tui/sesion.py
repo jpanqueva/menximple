@@ -1,22 +1,44 @@
 """Qué memorias ya se cargaron **en esta conversación** de Claude Code.
 
 Es estado efímero de cliente, no del hub: vive en un archivo temporal indexado
-por `CLAUDE_CODE_SESSION_ID`. Guardarlo así, y no en la memoria del proceso MCP,
-es lo que hace que:
+por la conversación. Guardarlo así, y no en la memoria del proceso MCP, es lo que
+hace que una terminal nueva arranque limpia y que un `/resume` recupere lo ya
+cargado.
 
-- una terminal nueva arranque limpia (otra conversación = otro id = otro archivo);
-- un `/resume` recupere lo ya cargado (reanudar conserva el id).
+**Ojo con el id.** Claude Code reparte dos valores distintos de
+`CLAUDE_CODE_SESSION_ID`: a las herramientas les da el de la conversación, pero a
+los servidores MCP les da uno nuevo en cada arranque del proceso (no tiene
+transcript en `~/.claude/projects/`). Usar ese sería romper justamente el caso
+`/resume`. Por eso el id se resuelve así: el que nos pasen, si no el del
+transcript activo, y sólo como último recurso el del entorno.
 
 Lo que NO se puede resolver solo: un **compact** vacía el contexto del modelo sin
 que ningún servidor MCP se entere — no hay señal que observar. Por eso limpiarlo
 es explícito: la tool `olvidar_cargadas` o Ctrl+L dentro del navegador."""
 import json
 import os
+import re
 import tempfile
 
 
+def _sesion_por_transcript() -> str | None:
+    """La conversación viva es el .jsonl que Claude Code está escribiendo ahora."""
+    proyecto = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not proyecto:
+        return None
+    carpeta = os.path.join(os.path.expanduser("~"), ".claude", "projects",
+                           re.sub(r"[^A-Za-z0-9]", "-", proyecto))
+    try:
+        transcripts = [(os.path.getmtime(os.path.join(carpeta, f)), f[:-6])
+                       for f in os.listdir(carpeta) if f.endswith(".jsonl")]
+    except OSError:
+        return None
+    return max(transcripts)[1] if transcripts else None
+
+
 def id_actual(explicito: str | None = None) -> str:
-    return explicito or os.environ.get("CLAUDE_CODE_SESSION_ID") or "sin-sesion"
+    return (explicito or _sesion_por_transcript()
+            or os.environ.get("CLAUDE_CODE_SESSION_ID") or "sin-sesion")
 
 
 def _ruta(sesion: str) -> str:

@@ -26,9 +26,10 @@ def _hay_escritorio() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: int):
+def _spawn_tui(out: str, query: str, folder: str | None, limit: int,
+               timeout: int, ses: str):
     cmd = [sys.executable, "-m", "memory_tui.browser", "--out", out,
-           "--query", query, "--limit", str(limit), "--sesion", sesion.id_actual()]
+           "--query", query, "--limit", str(limit), "--sesion", ses]
     if folder:
         cmd += ["--folder", folder]
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform.startswith("win") else 0
@@ -49,10 +50,11 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: in
         return []
 
 
-def seleccionar(query: str = "", folder: str | None = None,
-                limit: int = 20, timeout: int = 180) -> dict:
+def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
+                timeout: int = 180, ses: str | None = None) -> dict:
     """Abre el selector y devuelve lo elegido. Es la entrada única: la usan el CLI
     (`menximple select`) y la tool `abrir_selector` del MCP local."""
+    ses = sesion.id_actual(ses)
     if not _hay_escritorio():
         cands = client.buscar(query=query, limit=limit) if query \
             else client.listar_recientes(limit=limit)
@@ -61,7 +63,7 @@ def seleccionar(query: str = "", folder: str | None = None,
 
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
-    ids = _spawn_tui(out, query, folder, limit, timeout)
+    ids = _spawn_tui(out, query, folder, limit, timeout, ses)
     try:
         os.remove(out)
     except OSError:
@@ -71,13 +73,13 @@ def seleccionar(query: str = "", folder: str | None = None,
         return {"modo": "tui", "cancelado": True, "motivo": "timeout"}
     if not ids:
         return {"modo": "tui", "cancelado": True, "motivo": "sin_seleccion"}
-    return {"modo": "tui", "seleccion": cargar(ids)["seleccion"]}
+    return {"modo": "tui", "seleccion": cargar(ids, ses)["seleccion"]}
 
 
-def cargar(ids: list[str]) -> dict:
+def cargar(ids: list[str], ses: str | None = None) -> dict:
     """Trae el contexto completo de esas memorias (y marca su uso)."""
     seleccion = client.cargar_contexto(ids)
-    sesion.agregar(sesion.id_actual(), ids)  # para pintarlas como ya cargadas
+    sesion.agregar(sesion.id_actual(ses), ids)  # para pintarlas como ya cargadas
     return {"seleccion": seleccion}
 
 

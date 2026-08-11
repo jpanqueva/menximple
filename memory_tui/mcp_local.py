@@ -38,34 +38,41 @@ mcp = FastMCP("menximple-selector", instructions=INSTRUCCIONES)
 
 
 @mcp.tool
-async def abrir_selector(query: str = "", folder: str | None = None,
-                         limit: int = 20, timeout: int = 100) -> dict:
+async def abrir_selector(query: str = "", folder: str | None = None, limit: int = 20,
+                         timeout: int = 100, sesion: str | None = None) -> dict:
     """Abre el selector de memorias en el escritorio del usuario y espera su elección.
 
     `query` filtra por tema (vacío = las memorias más recientes). `timeout` son los
     segundos antes de cerrar la ventana y dar la selección por cancelada. Déjalo por
     debajo de 120: Claude Code corta la llamada ahí y la manda a segundo plano
-    (la ventana sigue viva, pero el resultado ya no llega en la misma respuesta)."""
-    return await asyncio.to_thread(launcher.seleccionar, query, folder, limit, timeout)
+    (la ventana sigue viva, pero el resultado ya no llega en la misma respuesta).
+
+    `sesion`: pasa el valor de `CLAUDE_CODE_SESSION_ID` de tu entorno si lo tienes.
+    Es lo que permite marcar como ya cargadas las memorias de esta conversación —
+    el que ve este servidor es distinto y cambia en cada arranque. Si no lo pasas,
+    se deduce del transcript activo."""
+    return await asyncio.to_thread(launcher.seleccionar, query, folder, limit,
+                                   timeout, sesion)
 
 
 @mcp.tool
-async def cargar_memorias(ids: list[str]) -> dict:
+async def cargar_memorias(ids: list[str], sesion: str | None = None) -> dict:
     """Trae el contexto completo de esas memorias por id (y marca su uso).
 
-    Es el segundo paso del modo chat: después de que el usuario elige por número."""
-    return await asyncio.to_thread(launcher.cargar, ids)
+    Es el segundo paso del modo chat: después de que el usuario elige por número.
+    `sesion`: igual que en `abrir_selector`."""
+    return await asyncio.to_thread(launcher.cargar, ids, sesion)
 
 
 @mcp.tool
-async def olvidar_cargadas() -> dict:
+async def olvidar_cargadas(sesion: str | None = None) -> dict:
     """Olvida qué memorias se cargaron en esta conversación (las deja de marcar ●).
 
     Llámala cuando el contexto se haya vaciado y lo cargado ya no esté presente:
     típicamente **después de un compact**, del que ningún servidor MCP se entera.
     No la llames por otras razones: perder esas marcas hace que el usuario vuelva
-    a cargar lo que ya tenía."""
-    return await asyncio.to_thread(launcher.olvidar, None)
+    a cargar lo que ya tenía. `sesion`: igual que en `abrir_selector`."""
+    return await asyncio.to_thread(launcher.olvidar, sesion)
 
 
 def main() -> None:
