@@ -135,7 +135,8 @@ def buscar(query: str = "", tipo: str | None = None, folder_id: str | None = Non
     """Busca entradas por texto/vector + filtros de metadatos (tipo, carpeta, tags).
     Devuelve resúmenes (no el contexto completo). `folder_id` restringe al subárbol.
     `titulo` y `resumen` casan por prefijo: "corr" encuentra "Correlativo".
-    Un `query` que sea solo un número (o `#12`) busca por el consecutivo de la memoria.
+    Un `query` que sea solo un número (o `#12`) busca por el consecutivo de la memoria;
+    si no existe ninguna con ese número, se reintenta como texto (salvo con `#`).
     Lo borrado (archivado) no sale salvo `incluir_archivadas=True`."""
     return _g(repo.buscar, auth.cuenta_actual(), query, tipo, folder_id, tags, limit,
               incluir_archivadas)

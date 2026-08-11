@@ -529,18 +529,29 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
         return [_entrada_out(p) for p in store.search(store.ENTRADAS, vec, must=must, limit=limit)]
 
     # Camino texto/metadatos (full-text de payload de Qdrant).
-    if query.strip():
+    if not query.strip():
+        return [_entrada_out(p) for p in
+                store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)]
+
+    def busca(*opciones) -> list[dict]:
         from qdrant_client.models import Filter
-        opciones = [store.cond_text("titulo", query), store.cond_text("resumen", query),
-                    store.cond_text("contexto", query)]
-        numero = _como_numero(query)
-        if numero is not None:
-            opciones.append(store.cond("numero", numero))
-        must = must + [Filter(should=opciones)]
-        res = store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)
-    else:
-        res = store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)
-    return [_entrada_out(p) for p in res]
+        return store.scroll(store.ENTRADAS, must=must + [Filter(should=list(opciones))],
+                            order_key="updated_at", limit=limit)
+
+    # Un query que es solo un número se lee como el consecutivo, y NO como texto:
+    # el contexto va indexado por palabras, así que "3" traería toda memoria que
+    # mencione un 3 por ahí. Si no existe esa memoria se reintenta como texto,
+    # porque entonces lo más probable es que buscara algo tipo "2026". Con "#" no
+    # se reintenta: ahí el usuario ya dijo explícitamente que iba por número.
+    numero = _como_numero(query)
+    if numero is not None:
+        res = busca(store.cond("numero", numero))
+        if res or query.strip().startswith("#"):
+            return [_entrada_out(p) for p in res]
+
+    return [_entrada_out(p) for p in busca(store.cond_text("titulo", query),
+                                           store.cond_text("resumen", query),
+                                           store.cond_text("contexto", query))]
 
 
 def buscar_relacionadas(cta: str, texto: str | None = None,
