@@ -80,8 +80,6 @@ async def cargar_memorias(ids: list[str]) -> dict:
 
 
 def main() -> None:
-    if not sys.platform.startswith("win"):
-        os.environ.setdefault("MEMORY_TUI", "off")  # sin consola nueva -> modo chat
     mcp.run()  # stdio: stdout es del protocolo, nada más puede escribir ahí
 
 

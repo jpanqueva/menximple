@@ -28,12 +28,22 @@ from . import client
 _ABIERTAS: dict[str, dict] = {}
 
 
-def _hay_escritorio() -> bool:
+def _hay_ventana() -> bool:
+    """¿Se puede abrir el selector en una ventana propia?
+
+    Hoy solo en Windows, donde `CREATE_NEW_CONSOLE` le da a la TUI su propia
+    consola. Fuera de Windows no existe equivalente: el proceso hijo heredaría
+    nuestro stdout — que es /dev/null, o peor, el protocolo MCP — y la interfaz no
+    se dibujaría en ningún sitio. Antes esto miraba `DISPLAY`, pero tener escritorio
+    no da un terminal donde pintar: en Linux con X11 la ventana simplemente no
+    aparecía y el usuario recibía un "sin selección" sin explicación.
+
+    Lo que falta para Linux/macOS es correr la TUI **en el propio terminal** cuando
+    stdout es un TTY, en vez de lanzar un proceso aparte. Mientras tanto, ahí se
+    usa el modo chat, que funciona igual de bien con `arbol()` y los consecutivos."""
     if os.environ.get("MEMORY_TUI", "").lower() == "off":
         return False
-    if sys.platform.startswith("win"):
-        return True
-    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    return sys.platform.startswith("win")
 
 
 def _spawn_tui(out: str, query: str, folder: str | None, limit: int):
@@ -89,11 +99,14 @@ def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
                 timeout: int = 110) -> dict:
     """Abre el selector y devuelve lo elegido. Es la entrada única: la usan el CLI
     (`menximple select`) y la tool `abrir_selector` del MCP local."""
-    if not _hay_escritorio():
+    if not _hay_ventana():
         cands = client.buscar(query=query, limit=limit) if query \
             else client.listar_recientes(limit=limit)
+        # El consecutivo va primero: en modo chat es por donde el usuario elige
+        # ("carga la 11"), y sin él tendría que leer uuids en voz alta.
         return {"modo": "chat", "candidatos": [
-            {k: c.get(k) for k in ("id", "titulo", "resumen", "tipo", "path")} for c in cands]}
+            {k: c.get(k) for k in ("numero", "titulo", "resumen", "tipo", "path", "id")}
+            for c in cands]}
 
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)

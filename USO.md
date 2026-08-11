@@ -60,13 +60,16 @@ tu PC**. Por eso el selector es un segundo servidor, local, que sí puede.
 }
 ```
 
-**En Windows es mejor no usar el `.mcp.json` del proyecto**: ese archivo se
-commitea y la apikey acabaría en un repositorio. Regístralos a nivel de usuario
-siguiendo [docs/INSTALAR-EN-WINDOWS.md](docs/INSTALAR-EN-WINDOWS.md) — quedan en
-tu perfil, valen para todas las sesiones y no piden permisos cada vez.
+**Mejor no usar el `.mcp.json` del proyecto**: ese archivo se commitea y la apikey
+acabaría en un repositorio. Regístralos a nivel de usuario — quedan en tu perfil,
+valen para todas las sesiones y no piden permisos cada vez:
+[Windows](docs/INSTALAR-EN-WINDOWS.md) · [Ubuntu](docs/INSTALAR-EN-UBUNTU.md).
 
-Instalación del cliente en Linux/macOS o para uso desde consola:
-[INSTALL-CLIENTE.md](INSTALL-CLIENTE.md).
+> **El selector visual solo funciona en Windows.** En Linux no hay forma de darle
+> a la ventana su propia consola, así que ahí se usa el modo chat (sección 4), que
+> hace lo mismo con el árbol y los números. En Ubuntu basta con instalar el hub.
+
+Cliente de consola (`menximple select` / `load`): [INSTALL-CLIENTE.md](INSTALL-CLIENTE.md).
 
 ---
 

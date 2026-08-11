@@ -4,9 +4,10 @@ Hub de **memoria a largo plazo** para agentes de IA, servido por **MCP sobre HTT
 Almacén único **Qdrant** (documentos en payload + vectores del `resumen`).
 Multi-cuenta con **apikey por cuenta** (memorias privadas y aisladas).
 
-> **¿Te lo compartieron para usarlo?** → **[docs/INSTALAR-EN-WINDOWS.md](docs/INSTALAR-EN-WINDOWS.md)**
-> (deja Claude Code con memoria en todas tus sesiones; solo tienes que pedir la
-> URL y tu apikey), y luego **[USO.md](USO.md)** para saber cómo se usa.
+> **¿Te lo compartieron para usarlo?** Deja Claude Code con memoria en todas tus
+> sesiones; solo tienes que pedir la URL y tu apikey:
+> **[Windows](docs/INSTALAR-EN-WINDOWS.md)** · **[Ubuntu](docs/INSTALAR-EN-UBUNTU.md)**.
+> Luego **[USO.md](USO.md)** para saber cómo se usa.
 >
 > Un agente al que le digan *"lee este repo e instala"* tiene ahí todo lo que
 > necesita salvo la URL y la apikey, que **no están en el repo a propósito**.
