@@ -173,6 +173,9 @@ class Navegador(App):
         # desmarcarla hay que quitar exactamente esos, y una entrada no sabe de qué
         # carpetas cuelga: `_entrada_out` no devuelve `ancestros`.
         self.marcadas_de: dict[str, list[str]] = {}
+        # carpeta pulsada -> subcarpetas que quedaron marcadas con ella, para
+        # poder deshacerlo entero al volver a pulsar.
+        self.arrastradas: dict[str, list[str]] = {}
         self.confirmado = False
         self.cuenta = "…"
         self._gen = 0                 # descarta contextos que llegan tarde
@@ -471,27 +474,41 @@ class Navegador(App):
 
     def _aplicar_marcas_carpeta(self, node, carpeta: dict, memorias: list[dict],
                                 quitar: bool = False) -> None:
+        fid = carpeta["id"]
         if quitar:
-            for eid in self.marcadas_de.pop(carpeta["id"], []):
+            for eid in self.marcadas_de.pop(fid, []):
                 self.marcadas.pop(eid, None)
+            for sub in self.arrastradas.pop(fid, []):
+                self.marcadas_de.pop(sub, None)
         else:
             for e in memorias:
                 self.marcadas.setdefault(e["id"], e)
-            self.marcadas_de[carpeta["id"]] = [e["id"] for e in memorias]
+            self.marcadas_de[fid] = [e["id"] for e in memorias]
+            # Cada subcarpeta se anota con lo suyo: si no, marcar la rama dejaría
+            # las de dentro sin ✓ y parecería que solo se marcó el primer nivel.
+            por_sub: dict[str, list[str]] = {}
+            for e in memorias:
+                por_sub.setdefault(e.get("folder_id") or fid, []).append(e["id"])
+            self.arrastradas[fid] = [s for s in por_sub if s != fid]
+            for sub, ids in por_sub.items():
+                if sub != fid:
+                    self.marcadas_de[sub] = ids
             if not memorias:
                 self.notify(f"«{carpeta['nombre']}» no tiene memorias")
         node.set_label(self._etiqueta_carpeta(carpeta))
-        self._repintar_entradas()
+        self._repintar_arbol()
         self._pintar_estado()
 
-    def _repintar_entradas(self) -> None:
-        """Marcar una carpeta cambia el ✓ de memorias que ya están a la vista."""
+    def _repintar_arbol(self) -> None:
+        """Marcar una carpeta cambia el ✓ de todo lo que ya está a la vista."""
         pendientes = [self.query_one("#arbol", Arbol).root]
         while pendientes:
             n = pendientes.pop()
             info = n.data or {}
             if info.get("kind") == "entrada":
                 n.set_label(self._etiqueta_entrada(info["obj"]))
+            elif info.get("kind") == "carpeta":
+                n.set_label(self._etiqueta_carpeta(info["obj"]))
             pendientes.extend(n.children)
 
     def action_confirmar(self) -> None:
