@@ -88,9 +88,28 @@ def _carpeta_out(p: dict) -> dict:
     }
 
 
+def _siguiente_numero(cta: str) -> int:
+    """Consecutivo por cuenta: un nombre corto que el usuario pueda decir en voz alta
+    ("la 12") en vez del uuid.
+
+    Sale del mayor que exista, **incluidas las archivadas**: un número no se
+    reutiliza nunca, o dos memorias distintas acabarían llamándose igual."""
+    ultimas = store.scroll(store.ENTRADAS, must=[store.cond("cuenta", cta)],
+                           order_key="numero", limit=1)
+    return int(ultimas[0].get("numero") or 0) + 1 if ultimas else 1
+
+
+def _como_numero(query: str) -> int | None:
+    """`12` o `#12` = buscar por consecutivo. El índice de texto no sirve para esto:
+    un número corto no llega al mínimo de caracteres que se indexa."""
+    q = query.strip().lstrip("#").strip()
+    return int(q) if q.isdigit() else None
+
+
 def _entrada_out(p: dict, con_contexto: bool = False) -> dict:
     out = {
-        "id": p["_id"], "cuenta": p["cuenta"], "folder_id": p.get("folder_id"),
+        "id": p["_id"], "numero": p.get("numero"),
+        "cuenta": p["cuenta"], "folder_id": p.get("folder_id"),
         "titulo": p["titulo"], "resumen": p["resumen"], "tipo": p["tipo"],
         "tags": p.get("tags", []), "path": p.get("path", []),
         "version": p.get("version", 1), "use_count": p.get("use_count", 0),
@@ -244,7 +263,8 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
     ts = store.now_ts()
     pid = store.nuevo_id()
     payload = {
-        "_id": pid, "cuenta": cta, "folder_id": folder_id,
+        "_id": pid, "numero": _siguiente_numero(cta),
+        "cuenta": cta, "folder_id": folder_id,
         "ancestros": f.get("ancestros", []) + [f["_id"]],
         "path": f.get("path", []) + [f["nombre"]],
         "titulo": titulo, "resumen": resumen, "contexto": contexto,
@@ -511,9 +531,12 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
     # Camino texto/metadatos (full-text de payload de Qdrant).
     if query.strip():
         from qdrant_client.models import Filter
-        must = must + [Filter(should=[store.cond_text("titulo", query),
-                                      store.cond_text("resumen", query),
-                                      store.cond_text("contexto", query)])]
+        opciones = [store.cond_text("titulo", query), store.cond_text("resumen", query),
+                    store.cond_text("contexto", query)]
+        numero = _como_numero(query)
+        if numero is not None:
+            opciones.append(store.cond("numero", numero))
+        must = must + [Filter(should=opciones)]
         res = store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)
     else:
         res = store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)

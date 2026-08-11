@@ -186,7 +186,8 @@ class Navegador(App):
         yield Header(show_clock=False)
         with Horizontal():
             with Vertical(id="izq"):
-                yield Buscador(placeholder="tema y Enter · vacío = todo", id="buscador")
+                yield Buscador(placeholder="tema o #nº y Enter · vacío = todo",
+                               id="buscador")
                 yield Arbol("memorias", id="arbol")
             with Detalle(id="der"):
                 yield Static(id="ficha")
@@ -250,6 +251,10 @@ class Navegador(App):
             t = Text("● ", style="blue")       # ya está en el contexto de esta charla
         else:
             t = Text("  ")
+        # El consecutivo va delante: es como el usuario puede pedir esta memoria
+        # sin leer un uuid, y se escribe tal cual en el buscador.
+        if e.get("numero"):
+            t.append(f"#{e['numero']:<3} ", style="dim")
         t.append(e["titulo"], style="bold" if marcada else ("dim" if ya else ""))
         t.append(f"  {e.get('tipo', '')}", style=COLOR_TIPO.get(e.get("tipo"), "white"))
         t.append(f" · {_tokens(e.get('tokens'))}", style="dim")
@@ -289,12 +294,15 @@ class Navegador(App):
 
         if info.get("kind") == "entrada":
             t = Text()
+            if obj.get("numero"):
+                t.append(f"#{obj['numero']}  ", style="dim")
             t.append(f"{obj['titulo']}\n", style="bold")
             t.append(f"{obj.get('resumen', '')}\n", style="italic dim")
             if obj["id"] in self.cargadas:
                 t.append("● ya cargada en esta conversación\n", style="blue")
             t.append("\n")
             for k, v in (
+                ("nº", f"#{obj['numero']}" if obj.get("numero") else "—"),
                 ("tipo", obj.get("tipo", "—")),
                 ("carpeta", " / ".join(obj.get("path") or []) or "—"),
                 ("creada", _fecha(obj.get("created_at"))),
