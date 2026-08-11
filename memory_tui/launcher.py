@@ -38,10 +38,11 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int, timeout: in
     except subprocess.TimeoutExpired:
         p.kill()                         # se colgó -> cancelar y liberar el chat
         return None
-    if os.path.exists(out):
+    try:                                 # si la ventana murió sin escribir -> sin selección
         with open(out, encoding="utf-8") as f:
             return json.load(f)
-    return []
+    except (OSError, ValueError):
+        return []
 
 
 def _select(a) -> dict:

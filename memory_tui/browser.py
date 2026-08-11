@@ -21,6 +21,14 @@ def _escribir(path: str, ids: list) -> None:
         json.dump(ids, f)
 
 
+def _pausa() -> None:
+    """Espera al usuario. Si la consola no tiene stdin (EOFError), no bloquea."""
+    try:
+        input("Enter para cerrar…")
+    except EOFError:
+        pass
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -32,15 +40,15 @@ def main() -> None:
     try:
         cands = _candidatos(a.query, a.folder, a.limit)
     except Exception as e:  # frontera: mostrar el error en la ventana y cerrar sin selección
+        _escribir(a.out, [])            # primero el resultado: el launcher no debe quedarse a ciegas
         print(f"Error consultando el API: {e}")
-        input("Enter para cerrar…")
-        _escribir(a.out, [])
+        _pausa()
         return
 
     if not cands:
-        print("No se encontraron memorias para esa búsqueda.")
-        input("Enter para cerrar…")
         _escribir(a.out, [])
+        print("No se encontraron memorias para esa búsqueda.")
+        _pausa()
         return
 
     choices = [
