@@ -29,8 +29,11 @@ Para buscar o guardar memorias sin interrumpirlo, usa las tools del hub remoto
 
 Respuestas de `abrir_selector`:
 - `{"modo":"tui","seleccion":[...]}` → contexto elegido, ya listo para usar.
-- `{"modo":"tui","cancelado":true,"motivo":"timeout|sin_seleccion"}` → el usuario
-  no eligió nada: sigue sin cargar contexto, no reintentes solo.
+- `{"modo":"tui","pendiente":true,"token":"..."}` → la ventana **sigue abierta**,
+  el usuario aún está mirando. Llama `recoger_seleccion` con ese token; repítelo
+  cuantas veces haga falta. NO abras otra ventana ni des la elección por perdida.
+- `{"modo":"tui","cancelado":true,"motivo":"sin_seleccion"}` → cerró sin elegir:
+  sigue sin cargar contexto, no reintentes solo.
 - `{"modo":"chat","candidatos":[...]}` → no había escritorio disponible: muéstrale
   la lista, pídele los números y luego llama `cargar_memorias` con esos ids."""
 
@@ -39,13 +42,13 @@ mcp = FastMCP("menximple-selector", instructions=INSTRUCCIONES)
 
 @mcp.tool
 async def abrir_selector(query: str = "", folder: str | None = None, limit: int = 20,
-                         timeout: int = 100, sesion: str | None = None) -> dict:
+                         timeout: int = 110, sesion: str | None = None) -> dict:
     """Abre el selector de memorias en el escritorio del usuario y espera su elección.
 
     `query` filtra por tema (vacío = las memorias más recientes). `timeout` son los
-    segundos antes de cerrar la ventana y dar la selección por cancelada. Déjalo por
-    debajo de 120: Claude Code corta la llamada ahí y la manda a segundo plano
-    (la ventana sigue viva, pero el resultado ya no llega en la misma respuesta).
+    segundos que espero antes de devolver el control; déjalo por debajo de 120,
+    que es donde Claude Code corta la llamada. Agotarlo **no cierra la ventana**:
+    devuelve `pendiente` con un token para seguir esperando con `recoger_seleccion`.
 
     `sesion`: pasa el valor de `CLAUDE_CODE_SESSION_ID` de tu entorno si lo tienes.
     Es lo que permite marcar como ya cargadas las memorias de esta conversación —
@@ -53,6 +56,23 @@ async def abrir_selector(query: str = "", folder: str | None = None, limit: int 
     se deduce del transcript activo."""
     return await asyncio.to_thread(launcher.seleccionar, query, folder, limit,
                                    timeout, sesion)
+
+
+@mcp.tool
+async def recoger_seleccion(token: str, timeout: int = 110) -> dict:
+    """Sigue esperando por una ventana que quedó abierta (respuesta `pendiente`).
+
+    Devuelve lo mismo que `abrir_selector`: si el usuario todavía no ha terminado,
+    otra vez `pendiente` con el mismo token — vuelve a llamarla. Elegir con calma es
+    lo normal; no interpretes la espera como que canceló."""
+    return await asyncio.to_thread(launcher.recoger, token, timeout)
+
+
+@mcp.tool
+async def cerrar_selector(token: str) -> dict:
+    """Cierra a la fuerza una ventana que quedó abierta. Úsala solo si el usuario
+    dice que ya no la quiere: le quita de la pantalla algo que él no pidió cerrar."""
+    return await asyncio.to_thread(launcher.cerrar, token)
 
 
 @mcp.tool

@@ -2,11 +2,16 @@
 
 Imprime UN objeto JSON a stdout = lo que se inyecta en la conversación:
   - TUI ok:        {"modo":"tui","seleccion":[...contextos...]}
-  - TUI cancelado: {"modo":"tui","cancelado":true,"motivo":"timeout|sin_seleccion"}
+  - TUI cancelado: {"modo":"tui","cancelado":true,"motivo":"sin_seleccion"}
+  - Sigue abierta: {"modo":"tui","pendiente":true,"token":"..."}
   - Modo chat:     {"modo":"chat","candidatos":[{id,titulo,resumen,tipo,path}...]}
 El chat elige por número y luego llama `load --ids a,b` para traer los contextos.
 
-Bloquea hasta que la ventana muere; si se cuelga, la mata por timeout (chat liberado).
+Bloquea hasta que la ventana muere, pero **agotar el tiempo no la mata**: Claude
+Code corta sus llamadas a los 120 s y matar la ventana ahí le daba al usuario
+menos de dos minutos para escoger. En vez de eso se devuelve un token y se sigue
+esperando con `recoger` las veces que haga falta.
+
 Si no hay escritorio (servidor ciego / tmux) no abre ventana: usa modo chat."""
 import argparse
 import json
@@ -14,8 +19,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 
 from . import client, sesion
+
+# Ventanas abiertas que aún no han dado resultado, por token. Vive en memoria del
+# proceso MCP local, que es de larga vida: sobrevive entre llamadas a tools.
+_ABIERTAS: dict[str, dict] = {}
 
 
 def _hay_escritorio() -> bool:
@@ -26,8 +36,7 @@ def _hay_escritorio() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def _spawn_tui(out: str, query: str, folder: str | None, limit: int,
-               timeout: int, ses: str):
+def _spawn_tui(out: str, query: str, folder: str | None, limit: int, ses: str):
     cmd = [sys.executable, "-m", "memory_tui.browser", "--out", out,
            "--query", query, "--limit", str(limit), "--sesion", ses]
     if folder:
@@ -37,21 +46,47 @@ def _spawn_tui(out: str, query: str, folder: str | None, limit: int,
     # MCP local (stdio) eso corromperia el protocolo: en ese caso, a /dev/null.
     salida = None if flags else subprocess.DEVNULL
     entorno = {**os.environ, "PYTHONIOENCODING": "utf-8"}  # la TUI dibuja con Unicode
-    p = subprocess.Popen(cmd, creationflags=flags, stdout=salida, stderr=salida, env=entorno)
+    return subprocess.Popen(cmd, creationflags=flags, stdout=salida, stderr=salida,
+                            env=entorno)
+
+
+def _pendiente(token: str) -> dict:
+    return {"modo": "tui", "pendiente": True, "token": token,
+            "mensaje": "La ventana sigue abierta; el usuario no ha terminado de "
+                       "elegir. Vuelve a llamar `recoger_seleccion` con este token "
+                       "(no abras otra ventana)."}
+
+
+def _cosechar(token: str, timeout: int) -> dict:
+    """Espera a que la ventana muera y traduce lo que dejó escrito. Si sigue viva
+    al agotarse el tiempo la deja en paz y devuelve el token."""
+    st = _ABIERTAS.get(token)
+    if st is None:
+        return {"error": f"token desconocido: {token}. La ventana ya se cosechó o "
+                         "nunca existió; abre el selector de nuevo."}
     try:
-        p.wait(timeout=timeout)          # bloquea hasta que la ventana muere
+        st["p"].wait(timeout=max(1, timeout))
     except subprocess.TimeoutExpired:
-        p.kill()                         # se colgó -> cancelar y liberar el chat
-        return None
-    try:                                 # si la ventana murió sin escribir -> sin selección
-        with open(out, encoding="utf-8") as f:
-            return json.load(f)
+        return _pendiente(token)
+
+    _ABIERTAS.pop(token, None)
+    try:                          # si la ventana murió sin escribir -> sin selección
+        with open(st["out"], encoding="utf-8") as f:
+            ids = json.load(f)
     except (OSError, ValueError):
-        return []
+        ids = []
+    try:
+        os.remove(st["out"])
+    except OSError:
+        pass
+
+    if not ids:
+        return {"modo": "tui", "cancelado": True, "motivo": "sin_seleccion"}
+    return {"modo": "tui", "seleccion": cargar(ids, st["ses"])["seleccion"]}
 
 
 def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
-                timeout: int = 180, ses: str | None = None) -> dict:
+                timeout: int = 110, ses: str | None = None) -> dict:
     """Abre el selector y devuelve lo elegido. Es la entrada única: la usan el CLI
     (`menximple select`) y la tool `abrir_selector` del MCP local."""
     ses = sesion.id_actual(ses)
@@ -63,17 +98,28 @@ def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
 
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
-    ids = _spawn_tui(out, query, folder, limit, timeout, ses)
+    token = uuid.uuid4().hex[:8]
+    _ABIERTAS[token] = {"p": _spawn_tui(out, query, folder, limit, ses),
+                        "out": out, "ses": ses}
+    return _cosechar(token, timeout)
+
+
+def recoger(token: str, timeout: int = 110) -> dict:
+    """Sigue esperando por una ventana que quedó abierta (ver `seleccionar`)."""
+    return _cosechar(token, timeout)
+
+
+def cerrar(token: str) -> dict:
+    """Cierra a la fuerza una ventana abandonada."""
+    st = _ABIERTAS.pop(token, None)
+    if st is None:
+        return {"error": f"token desconocido: {token}"}
+    st["p"].kill()
     try:
-        os.remove(out)
+        os.remove(st["out"])
     except OSError:
         pass
-
-    if ids is None:
-        return {"modo": "tui", "cancelado": True, "motivo": "timeout"}
-    if not ids:
-        return {"modo": "tui", "cancelado": True, "motivo": "sin_seleccion"}
-    return {"modo": "tui", "seleccion": cargar(ids, ses)["seleccion"]}
+    return {"cerrado": token}
 
 
 def cargar(ids: list[str], ses: str | None = None) -> dict:
@@ -91,7 +137,11 @@ def olvidar(ses: str | None = None) -> dict:
 
 
 def _select(a) -> dict:
-    return seleccionar(a.query, a.folder, a.limit, a.timeout)
+    """Desde la terminal no hay quien reintente: se espera hasta que el usuario cierre."""
+    r = seleccionar(a.query, a.folder, a.limit, a.timeout)
+    while r.get("pendiente"):
+        r = recoger(r["token"], a.timeout)
+    return r
 
 
 def _load(a) -> dict:

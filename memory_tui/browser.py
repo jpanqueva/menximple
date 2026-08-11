@@ -45,10 +45,16 @@ class Arbol(Tree):
         Binding("space", "marcar_memoria", "Marcar", show=True),
         Binding("right", "abrir", "Abrir", show=False),
         Binding("left", "cerrar", "Cerrar", show=False),
+        Binding("escape", "volver_a_busqueda", "Volver a buscar", show=False),
     ]
 
     def action_marcar_memoria(self) -> None:
         self.app.action_marcar()
+
+    def action_volver_a_busqueda(self) -> None:
+        """ESC desde la lista NO cierra: sube a la caja de búsqueda. Cerrar cuesta
+        dos ESC a propósito, porque perder lo marcado por un tecleo es caro."""
+        self.app.action_enfocar_busqueda()
 
     def action_abrir(self) -> None:
         n = self.cursor_node
@@ -75,16 +81,24 @@ class Detalle(VerticalScroll):
 
 
 class Buscador(Input):
-    """Caja de búsqueda de la que se puede salir: ABAJO y ESC devuelven el foco
-    a la lista, para no quedar atrapado escribiendo."""
+    """Caja de búsqueda de la que se puede salir: ABAJO y ENTER bajan a la lista,
+    para no quedar atrapado escribiendo.
+
+    Aquí ESC sí cierra: es el segundo paso del ESC de la lista."""
 
     BINDINGS = [
         Binding("down", "ir_a_lista", "Ir a la lista", show=False),
-        Binding("escape", "ir_a_lista", "Volver a la lista", show=False),
+        Binding("escape", "salir", "Salir", show=False),
     ]
 
     def action_ir_a_lista(self) -> None:
         self.app.query_one("#arbol", Arbol).focus()
+        # Al salir del buscador el panel derecho está vacío y no hay evento de
+        # cursor que lo repueble: hay que repintarlo a mano.
+        self.app.repintar_ficha_actual()
+
+    def action_salir(self) -> None:
+        self.app.action_cancelar()
 
 
 # Color por tipo de memoria: el mismo criterio en el árbol y en la ficha.
@@ -141,7 +155,7 @@ class Navegador(App):
 
     BINDINGS = [  # ESPACIO lo declara el árbol, para poder ganarle al Tree de Textual
         Binding("f2,ctrl+g", "confirmar", "Cargar selección"),
-        ("escape", "cancelar", "Cancelar"),
+        Binding("escape", "cancelar", "Atrás · salir"),  # dos ESC desde la lista
         ("slash", "enfocar_busqueda", "Buscar"),
         Binding("ctrl+l", "olvidar_cargadas", "Olvidar cargadas"),
         Binding("pagedown", "desplazar(1)", "Bajar detalle", show=False),
@@ -162,7 +176,9 @@ class Navegador(App):
         self.confirmado = False
         self.cuenta = "…"
         self._gen = 0                 # descarta contextos que llegan tarde
+        self._gen_busq = 0            # ídem para resultados de búsqueda
         self._temporizador = None     # rebote al mover el cursor
+        self._buscando = False        # la lista muestra resultados, no carpetas
 
     # --- Layout --- #
 
@@ -185,9 +201,9 @@ class Navegador(App):
         self._pintar_estado()
         if self.query_inicial:
             self.query_one("#buscador", Input).value = self.query_inicial
-            self._buscar(self.query_inicial)
+            self._lanzar_busqueda(self.query_inicial)
         else:
-            self._cargar_carpeta(arbol.root, self.folder)
+            self._restaurar_carpetas()
 
     # --- Carga de datos (en hilos: la red no puede congelar la interfaz) --- #
 
@@ -197,9 +213,9 @@ class Navegador(App):
         self.call_from_thread(self._pintar_hijos, node, data)
 
     @work(thread=True)
-    def _buscar(self, query: str) -> None:
+    def _buscar(self, query: str, gen: int) -> None:
         res = client.buscar(query=query, limit=self.limit)
-        self.call_from_thread(self._pintar_busqueda, query, res)
+        self.call_from_thread(self._pintar_busqueda, query, res, gen)
 
     @work(thread=True)
     def _cargar_contexto(self, entry_id: str, gen: int) -> None:
@@ -253,7 +269,9 @@ class Navegador(App):
             node.add_leaf(Text("(vacío)", style="dim italic"), data={"kind": "vacio"})
         node.expand()
 
-    def _pintar_busqueda(self, query: str, res: list[dict]) -> None:
+    def _pintar_busqueda(self, query: str, res: list[dict], gen: int) -> None:
+        if gen != self._gen_busq:   # llegó tarde: el usuario ya buscó otra cosa
+            return
         arbol = self.query_one("#arbol", Arbol)
         arbol.root.remove_children()
         if not res:
@@ -344,19 +362,57 @@ class Navegador(App):
             self._cargar_carpeta(ev.node, info["obj"]["id"])
 
     def on_input_submitted(self, ev: Input.Submitted) -> None:
+        self.query_one("#arbol", Arbol).focus()
         q = ev.value.strip()
-        arbol = self.query_one("#arbol", Arbol)
-        arbol.focus()
         if q:
-            self._buscar(q)
+            self._lanzar_busqueda(q)
         else:
-            arbol.root.remove_children()
-            self._cargar_carpeta(arbol.root, self.folder)
+            self._restaurar_carpetas()
+
+    def on_input_changed(self, ev: Input.Changed) -> None:
+        """Vaciar la caja devuelve las carpetas sin tener que dar Enter."""
+        if not ev.value.strip() and self._buscando:
+            self._restaurar_carpetas()
 
     # --- Acciones --- #
 
+    def _esperando(self, aviso: str) -> None:
+        """Deja la lista con un solo aviso y el panel derecho en blanco: mientras
+        se consulta no puede quedar a la vista nada de lo anterior, que ya no
+        corresponde a lo que se está pidiendo."""
+        arbol = self.query_one("#arbol", Arbol)
+        arbol.root.remove_children()
+        arbol.root.add_leaf(Text(aviso, style="dim italic"), data={"kind": "vacio"})
+        self.limpiar_detalle()
+
+    def _lanzar_busqueda(self, query: str) -> None:
+        self._buscando = True
+        self._gen_busq += 1
+        self._esperando(f"buscando «{query}»…")
+        self._buscar(query, self._gen_busq)
+
+    def _restaurar_carpetas(self) -> None:
+        self._buscando = False
+        self._gen_busq += 1          # invalida una búsqueda que siga en vuelo
+        self._esperando("cargando…")
+        self._cargar_carpeta(self.query_one("#arbol", Arbol).root, self.folder)
+
+    def limpiar_detalle(self) -> None:
+        """Vacía el panel derecho y descarta el contexto que venga en camino."""
+        self._gen += 1
+        if self._temporizador is not None:
+            self._temporizador.stop()
+        self.query_one("#ficha", Static).update("")
+        self.query_one("#contexto", Markdown).update("")
+
+    def repintar_ficha_actual(self) -> None:
+        node = self.query_one("#arbol", Arbol).cursor_node
+        if node is not None:
+            self._pintar_ficha(node)
+
     def action_enfocar_busqueda(self) -> None:
         self.query_one("#buscador", Input).focus()
+        self.limpiar_detalle()   # la ficha es de la lista, no de lo que se escribe
 
     def action_desplazar(self, paso: int) -> None:
         """El panel derecho no toma el foco, así que se desplaza desde aquí."""
