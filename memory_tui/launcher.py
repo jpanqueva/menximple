@@ -21,7 +21,7 @@ import sys
 import tempfile
 import uuid
 
-from . import client, sesion
+from . import client
 
 # Ventanas abiertas que aún no han dado resultado, por token. Vive en memoria del
 # proceso MCP local, que es de larga vida: sobrevive entre llamadas a tools.
@@ -36,9 +36,9 @@ def _hay_escritorio() -> bool:
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
-def _spawn_tui(out: str, query: str, folder: str | None, limit: int, ses: str):
+def _spawn_tui(out: str, query: str, folder: str | None, limit: int):
     cmd = [sys.executable, "-m", "memory_tui.browser", "--out", out,
-           "--query", query, "--limit", str(limit), "--sesion", ses]
+           "--query", query, "--limit", str(limit)]
     if folder:
         cmd += ["--folder", folder]
     flags = subprocess.CREATE_NEW_CONSOLE if sys.platform.startswith("win") else 0
@@ -82,14 +82,13 @@ def _cosechar(token: str, timeout: int) -> dict:
 
     if not ids:
         return {"modo": "tui", "cancelado": True, "motivo": "sin_seleccion"}
-    return {"modo": "tui", "seleccion": cargar(ids, st["ses"])["seleccion"]}
+    return {"modo": "tui", "seleccion": cargar(ids)["seleccion"]}
 
 
 def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
-                timeout: int = 110, ses: str | None = None) -> dict:
+                timeout: int = 110) -> dict:
     """Abre el selector y devuelve lo elegido. Es la entrada única: la usan el CLI
     (`menximple select`) y la tool `abrir_selector` del MCP local."""
-    ses = sesion.id_actual(ses)
     if not _hay_escritorio():
         cands = client.buscar(query=query, limit=limit) if query \
             else client.listar_recientes(limit=limit)
@@ -99,8 +98,7 @@ def seleccionar(query: str = "", folder: str | None = None, limit: int = 20,
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     token = uuid.uuid4().hex[:8]
-    _ABIERTAS[token] = {"p": _spawn_tui(out, query, folder, limit, ses),
-                        "out": out, "ses": ses}
+    _ABIERTAS[token] = {"p": _spawn_tui(out, query, folder, limit), "out": out}
     return _cosechar(token, timeout)
 
 
@@ -122,18 +120,9 @@ def cerrar(token: str) -> dict:
     return {"cerrado": token}
 
 
-def cargar(ids: list[str], ses: str | None = None) -> dict:
+def cargar(ids: list[str]) -> dict:
     """Trae el contexto completo de esas memorias (y marca su uso)."""
-    seleccion = client.cargar_contexto(ids)
-    sesion.agregar(sesion.id_actual(ses), ids)  # para pintarlas como ya cargadas
-    return {"seleccion": seleccion}
-
-
-def olvidar(ses: str | None = None) -> dict:
-    """Borra el registro de 'ya cargadas' de esta conversación (post-compact)."""
-    ses = sesion.id_actual(ses)
-    sesion.limpiar(ses)
-    return {"sesion": ses, "cargadas": []}
+    return {"seleccion": client.cargar_contexto(ids)}
 
 
 def _select(a) -> dict:

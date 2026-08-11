@@ -89,15 +89,6 @@ la derecha (metadatos y contexto completo).
 | `Enter` (en el buscador) | buscar y bajar a la lista |
 | `ESC` | desde la lista sube al buscador; **el segundo ESC cierra** |
 | `Re Pág` / `Av Pág` | desplazar el panel derecho |
-| `Ctrl+L` | olvidar las marcas de "ya cargada" |
-
-Las memorias que ya cargaste en esta conversación salen con **●** azul y en gris,
-para no cargarlas dos veces. Ese estado va por conversación: una terminal nueva
-arranca limpia y `/resume` lo recupera.
-
-> **Después de un `/compact`**: el contexto se vacía pero ningún servidor MCP se
-> entera, así que las marcas siguen ahí. Dile al agente que las limpie
-> (`olvidar_cargadas`) o pulsa `Ctrl+L` en la ventana.
 
 La ventana **no se cierra sola**. Si tardas, la llamada devuelve un token y el
 agente sigue esperando con `recoger_seleccion`. Tómate el tiempo que quieras.
@@ -217,8 +208,7 @@ de X está en el archivo Y"), no el secreto.
 | `abrir_selector` | abre la ventana y espera |
 | `recoger_seleccion` | sigue esperando si devolvió `pendiente` |
 | `cerrar_selector` | la cierra a la fuerza |
-| `cargar_memorias` | carga por id (segundo paso del modo chat) |
-| `olvidar_cargadas` | borra las marcas ● (tras un compact) |
+| `cargar_memorias` | carga por id o por número (segundo paso del modo chat) |
 
 **Admin** (header `X-Admin-Token`): `crear_cuenta`, `listar_cuentas`.
 `crear_cuenta` devuelve la apikey **una sola vez**.
@@ -232,8 +222,10 @@ de X está en el archivo Y"), no el secreto.
 - **Los consecutivos no se reutilizan.** Si borras la última, la siguiente sigue
   contando; dos memorias distintas nunca comparten número.
 - **No se puede guardar dentro de una carpeta borrada**: la memoria nacería invisible.
-- **Un `/compact` no es observable** desde ningún MCP. Las marcas ● hay que
-  limpiarlas a mano.
+- **El selector no sabe qué cargaste antes.** Hubo una marca de "ya cargada" y se
+  quitó: solo se enteraba de las cargas hechas desde la ventana, no de las que
+  pedías por chat, así que su ausencia no significaba nada. Mientras no haya una
+  forma fiable, la ventana no promete lo que no puede saber.
 - **Claude Code corta las llamadas a tools a los 120 s.** Por eso el selector
   devuelve un token en vez de morirse.
 

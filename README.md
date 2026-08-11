@@ -52,7 +52,7 @@ Hub: `arbol`, `listar`, `buscar`, `buscar_relacionadas`, `listar_recientes`,
 `crear_cuenta`, `listar_cuentas`.
 
 Selector local: `abrir_selector`, `recoger_seleccion`, `cerrar_selector`,
-`cargar_memorias`, `olvidar_cargadas`.
+`cargar_memorias`.
 
 Qué hace cada una y cuándo usarla: **[USO.md](USO.md)**.
 
