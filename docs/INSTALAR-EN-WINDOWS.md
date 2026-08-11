@@ -3,10 +3,18 @@
 Esta guía es para **usar** el sistema, no para montarlo. Al terminar, Claude Code
 tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que se abra.
 
-> **Si eres un agente de IA y te dijeron "lee este repo e instala":** sigue los
-> pasos 1 a 5 en orden. Lo único que no está aquí — y que **no puede estar**,
-> porque el repositorio es público — son la URL base y la apikey. Pídeselas al
-> usuario antes de empezar y no las escribas en ningún archivo del repositorio.
+> **Si eres un agente de IA y te dijeron "lee esto e instálalo":** sigue los pasos
+> 1 a 5 **en orden y comprobando la salida de cada uno** — si `where.exe` no
+> imprime nada o `claude mcp list` no dice *Connected*, para y arregla eso antes
+> de seguir; encadenar comandos sobre un paso fallido deja al usuario con una
+> instalación a medias que parece buena.
+>
+> Lo único que no está aquí — y que **no puede estar**, porque el repositorio es
+> público — son la URL base y la apikey. Si el usuario no te las dio, pídeselas
+> antes de empezar. No las escribas en ningún archivo de ningún repositorio.
+>
+> Al terminar, dile al usuario que **reinicie Claude Code**: hasta entonces las
+> tools nuevas no existen para ti ni para él.
 
 ---
 
@@ -112,6 +120,19 @@ claude mcp list
 Los dos deben salir **√ Connected**. Quedan guardados en
 `%USERPROFILE%\.claude.json`, fuera de cualquier repositorio.
 
+> **Si te equivocaste al escribir la URL o la apikey**, no vale con repetir el
+> comando: `claude mcp add` falla con *"MCP server ... already exists in user
+> config"*. Hay que quitarlo primero:
+>
+> ```powershell
+> claude mcp remove --scope user menximple
+> claude mcp remove --scope user menximple-selector
+> ```
+>
+> **Si ya lo tenías configurado en el `.mcp.json` de algún proyecto**, quita esas
+> dos entradas de ese archivo: la configuración del proyecto tiene prioridad sobre
+> la del usuario y te seguirá pidiendo aprobación cada vez.
+
 ---
 
 ## 4. Quitar las confirmaciones de permisos
@@ -175,6 +196,8 @@ la ventana no, el hub está bien y el problema es el servidor local del paso 3.
 | síntoma | causa y arreglo |
 |---|---|
 | `missing required argument 'commandOrUrl'` | Faltaron las comillas en `"--"` (paso 3). |
+| `already exists in user config` | Ya estaba registrado. `claude mcp remove --scope user <nombre>` y repite. |
+| `claude` no se reconoce como comando | Claude Code no está instalado o no quedó en el PATH. Reabre PowerShell; si sigue, reinstálalo. |
 | `menximple-selector` no aparece en la lista | La carpeta de scripts no está en el PATH. Regístralo otra vez con la ruta completa que dio `where.exe`. |
 | Aparece pero sale **failed** | Ejecuta `menximple-mcp` a mano: debe quedarse esperando sin imprimir nada (habla por stdin/stdout). Si revienta, falta una dependencia: reinstala con pipx. |
 | **Pending approval** | Lo registraste en un proyecto en vez de con `--scope user`. Repite el paso 3 con esa opción. |
