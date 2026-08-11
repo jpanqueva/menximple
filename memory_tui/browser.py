@@ -460,7 +460,15 @@ def main() -> None:
     ap.add_argument("--query", default="")
     ap.add_argument("--folder", default=None)
     ap.add_argument("--limit", type=int, default=20)
-    a = ap.parse_args()
+    # Tolerante con argumentos que no conoce, a propósito. Quien nos lanza es el
+    # launcher, que vive en el proceso MCP: ese proceso arranca con la sesión de
+    # Claude Code y sigue con el código viejo hasta que el usuario la reinicia,
+    # mientras que este archivo se relee en cada ventana. Si al quitar una opción
+    # `argparse` abortara, la ventana se abriría y moriría al instante, sin log ni
+    # explicación, hasta el siguiente reinicio.
+    a, sobran = ap.parse_known_args()
+    if sobran:
+        _log(f"argumentos ignorados (launcher desactualizado): {sobran}")
 
     # La consola nueva de Windows no arranca en UTF-8 y la interfaz usa ▸ ✓ ─.
     for flujo in (sys.stdout, sys.stderr):
