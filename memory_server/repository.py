@@ -20,6 +20,18 @@ def _req(valor, campo: str) -> str:
     return str(valor).strip()
 
 
+def _carpeta_viva(cta: str, folder_id: str, papel: str) -> dict:
+    """Carpeta que existe, es de la cuenta y no está archivada. Guardar dentro de
+    algo archivado dejaría la memoria invisible desde el minuto uno."""
+    f = store.get(store.CARPETAS, folder_id)
+    if not f or f.get("cuenta") != cta:
+        raise MemoriaError(f"carpeta {papel} {folder_id} no existe en la cuenta '{cta}'")
+    if f.get("archivada"):
+        raise MemoriaError(f"la carpeta '{f['nombre']}' está archivada; "
+                           "restáurala antes de guardar ahí")
+    return f
+
+
 def _valida_tipo(tipo: str) -> str:
     if tipo not in TIPOS:
         raise MemoriaError(f"tipo inválido: {tipo!r}. Debe ser uno de {list(TIPOS)}")
@@ -57,6 +69,14 @@ def _accion_out(p: dict) -> dict | None:
     return None
 
 
+def _archivo_out(p: dict) -> dict:
+    """Lo archivado se marca siempre en la respuesta: nada debe parecer vivo si no lo está."""
+    if not p.get("archivada"):
+        return {}
+    return {"archivada": True, "archivada_at": store.iso(p.get("archivada_ts")),
+            "archivada_motivo": p.get("archivada_motivo")}
+
+
 def _carpeta_out(p: dict) -> dict:
     return {
         "id": p["_id"], "cuenta": p["cuenta"], "nombre": p["nombre"],
@@ -64,6 +84,7 @@ def _carpeta_out(p: dict) -> dict:
         "path": p.get("path", []), "descripcion": p.get("descripcion"),
         "created_at": store.iso(p.get("created_at")), "updated_at": store.iso(p.get("updated_at")),
         "ultima_accion": _accion_out(p),
+        **_archivo_out(p),
     }
 
 
@@ -77,6 +98,7 @@ def _entrada_out(p: dict, con_contexto: bool = False) -> dict:
         "created_at": store.iso(p.get("created_at")), "updated_at": store.iso(p.get("updated_at")),
         "last_used": store.iso(p.get("last_used")),
         "ultima_accion": _accion_out(p),
+        **_archivo_out(p),
     }
     if con_contexto:
         out["contexto"] = p.get("contexto", "")
@@ -135,9 +157,7 @@ def crear_carpeta(cta: str, nombre: str, parent_id: str | None = None,
                   descripcion: str | None = None) -> dict:
     nombre = _req(nombre, "nombre")
     if parent_id:
-        p = store.get(store.CARPETAS, parent_id)
-        if not p or p.get("cuenta") != cta:
-            raise MemoriaError(f"carpeta padre {parent_id} no existe en la cuenta '{cta}'")
+        p = _carpeta_viva(cta, parent_id, "padre")
         ancestros = p.get("ancestros", []) + [p["_id"]]
         path = p.get("path", []) + [p["nombre"]]
         parent_ref = parent_id
@@ -170,9 +190,7 @@ def editar_carpeta(cta: str, folder_id: str, nombre: str | None = None,
         if mover_a == folder_id:
             raise MemoriaError("una carpeta no puede ser su propio padre")
         if mover_a:
-            destino = store.get(store.CARPETAS, mover_a)
-            if not destino or destino.get("cuenta") != cta:
-                raise MemoriaError(f"carpeta destino {mover_a} no existe en la cuenta '{cta}'")
+            destino = _carpeta_viva(cta, mover_a, "destino")
             if folder_id in destino.get("ancestros", []):
                 raise MemoriaError("no se puede mover una carpeta dentro de su propio subárbol")
             cambios["parent_id"] = mover_a
@@ -221,12 +239,7 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
     contexto = _req(contexto, "contexto")
     tipo = _valida_tipo(_req(tipo, "tipo"))
 
-    f = store.get(store.CARPETAS, folder_id)
-    if not f or f.get("cuenta") != cta:
-        raise MemoriaError(
-            f"carpeta {folder_id} no existe en la cuenta '{cta}'; "
-            "crea o elige una carpeta antes de guardar la memoria"
-        )
+    f = _carpeta_viva(cta, folder_id, "")
 
     ts = store.now_ts()
     pid = store.nuevo_id()
@@ -268,11 +281,7 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
 
     origen = e.get("folder_id")
     if mover_a is not None:
-        destino = store.get(store.CARPETAS, _req(mover_a, "mover_a"))
-        if not destino or destino.get("cuenta") != cta:
-            raise MemoriaError(
-                f"carpeta destino {mover_a} no existe en la cuenta '{cta}'; "
-                "una entrada siempre vive dentro de una carpeta")
+        destino = _carpeta_viva(cta, _req(mover_a, "mover_a"), "destino")
         cambios["folder_id"] = mover_a
         cambios["ancestros"] = destino.get("ancestros", []) + [destino["_id"]]
         cambios["path"] = destino.get("path", []) + [destino["nombre"]]
@@ -335,22 +344,136 @@ def _marcar_uso(e: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Borrar = archivar. Nada se destruye: se saca del árbol y se puede restaurar.
+#
+# El almacén guarda memoria de trabajo de meses; un borrado real es un error que
+# no se puede deshacer y del que no queda ni rastro para saber qué faltaba. Lo
+# archivado desaparece de listar/buscar, pero sigue accesible por id.
+# --------------------------------------------------------------------------- #
+
+def _marca_archivo(archivar: bool, ts: float, motivo: str | None,
+                   por: str) -> dict:
+    if not archivar:
+        # Se dejan los campos en falso/vacío en vez de quitarlos: así una entrada
+        # restaurada se distingue de una que nunca se tocó, y el filtro sigue igual.
+        return {"archivada": False, "archivada_ts": None, "archivada_motivo": None,
+                "archivada_por": None,
+                "ultima_accion": _accion("restaurada", ts, motivo)}
+    return {"archivada": True, "archivada_ts": ts, "archivada_motivo": motivo,
+            "archivada_por": por,
+            "ultima_accion": _accion("archivada", ts, motivo)}
+
+
+def archivar_entrada(cta: str, entry_id: str, archivar: bool = True,
+                     motivo: str | None = None) -> dict:
+    e = store.get(store.ENTRADAS, entry_id)
+    if not e or e.get("cuenta") != cta:
+        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    if bool(e.get("archivada")) == archivar:
+        estado = "archivada" if archivar else "activa"
+        raise MemoriaError(f"la entrada '{e['titulo']}' ya está {estado}")
+
+    ts = store.now_ts()
+    cambios = _marca_archivo(archivar, ts, motivo, "directa")
+    cambios["updated_at"] = ts
+    store.set_payload(store.ENTRADAS, entry_id, cambios)
+    _propagar_accion(cta, e.get("folder_id"),
+                     _accion(cambios["ultima_accion"]["tipo"], ts, e["titulo"]))
+    return _entrada_out({**e, **cambios})
+
+
+def _subarbol(cta: str, folder_id: str) -> tuple[list[dict], list[dict]]:
+    """Carpetas descendientes y entradas que cuelgan de ahí (a cualquier profundidad).
+
+    Se resuelve con `ancestros`, que ya lleva la rama completa: no hace falta
+    recorrer nivel por nivel."""
+    bajo = [store.cond("cuenta", cta), store.cond_any("ancestros", [folder_id])]
+    return (store.scroll(store.CARPETAS, must=bajo, limit=10000),
+            store.scroll(store.ENTRADAS, must=bajo, limit=10000))
+
+
+def archivar_carpeta(cta: str, folder_id: str, archivar: bool = True,
+                     motivo: str | None = None) -> dict:
+    """Archiva la carpeta con todo lo que cuelga de ella, y la restaura igual.
+
+    Al restaurar solo vuelve lo que se archivó *con* esta carpeta: lo que ya
+    estaba archivado por su cuenta se queda como estaba, que es lo que el usuario
+    dejó dicho la última vez."""
+    f = store.get(store.CARPETAS, folder_id)
+    if not f or f.get("cuenta") != cta:
+        raise MemoriaError(f"carpeta {folder_id} no existe en la cuenta '{cta}'")
+    if bool(f.get("archivada")) == archivar:
+        estado = "archivada" if archivar else "activa"
+        raise MemoriaError(f"la carpeta '{f['nombre']}' ya está {estado}")
+
+    ts = store.now_ts()
+    subcarpetas, entradas = _subarbol(cta, folder_id)
+    propia = _marca_archivo(archivar, ts, motivo, "directa")
+    propia["updated_at"] = ts
+    heredada = _marca_archivo(archivar, ts, motivo, folder_id)
+
+    tocadas = 0
+    for coll, puntos in ((store.CARPETAS, subcarpetas), (store.ENTRADAS, entradas)):
+        for p in puntos:
+            if archivar:
+                if p.get("archivada"):
+                    continue                       # ya estaba: no lo toco
+            elif p.get("archivada_por") != folder_id:
+                continue                           # no se archivó con esta carpeta
+            store.set_payload(coll, p["_id"], heredada)
+            tocadas += 1
+
+    store.set_payload(store.CARPETAS, folder_id, propia)
+    if f.get("parent_id"):
+        _propagar_accion(cta, f["parent_id"],
+                         _accion(propia["ultima_accion"]["tipo"], ts, f["nombre"]))
+    return {**_carpeta_out({**f, **propia}), "arrastradas": tocadas}
+
+
+def ver_historial(cta: str, entry_id: str) -> dict:
+    """Las versiones anteriores de una memoria, de la más nueva a la más vieja.
+
+    Cada edición guarda la versión que había antes, así que la versión N tiene
+    N-1 registros. Va aparte de `obtener_entrada` porque el historial completo
+    puede ser mucho más grande que la memoria y casi nunca se necesita."""
+    e = store.get(store.ENTRADAS, entry_id)
+    if not e or e.get("cuenta") != cta:
+        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    hist = list(e.get("historial", []))
+    hist.reverse()
+    return {
+        "id": entry_id, "titulo": e["titulo"], "version_actual": e.get("version", 1),
+        "versiones": [{
+            "version": h.get("version"), "fecha": store.iso(h.get("ts")),
+            "titulo": h.get("titulo"), "resumen": h.get("resumen"),
+            "tipo": h.get("tipo"), "tags": h.get("tags", []),
+            "contexto": h.get("contexto", ""),
+            "tokens": _tokens(h.get("contexto", "")),
+        } for h in hist],
+    }
+
+
+# --------------------------------------------------------------------------- #
 # Navegación y búsqueda (siempre scoped a la cuenta)
 # --------------------------------------------------------------------------- #
 
-def listar(cta: str, folder_id: str | None = None) -> dict:
+def listar(cta: str, folder_id: str | None = None,
+           incluir_archivadas: bool = False) -> dict:
     from .instructions import DOCUMENTACION_USO
     parent = folder_id or ""  # "" = raíz
+    vivas = [] if incluir_archivadas else [store.cond_viva()]
 
     carpetas = store.scroll(store.CARPETAS,
-                            must=[store.cond("cuenta", cta), store.cond("parent_id", parent)])
+                            must=[store.cond("cuenta", cta),
+                                  store.cond("parent_id", parent)] + vivas)
     carpetas.sort(key=lambda p: p.get("nombre", ""))
     out = {"cuenta": cta, "folder_id": folder_id,
            "carpetas": [_carpeta_out(c) for c in carpetas], "entradas": []}
 
     if folder_id:  # las entradas viven dentro de una carpeta
         entradas = store.scroll(store.ENTRADAS,
-                                must=[store.cond("cuenta", cta), store.cond("folder_id", folder_id)],
+                                must=[store.cond("cuenta", cta),
+                                      store.cond("folder_id", folder_id)] + vivas,
                                 order_key="updated_at")
         out["entradas"] = [_entrada_out(e) for e in entradas]
     else:
@@ -358,8 +481,11 @@ def listar(cta: str, folder_id: str | None = None) -> dict:
     return out
 
 
-def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | None) -> list:
+def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | None,
+          incluir_archivadas: bool = False) -> list:
     must = [store.cond("cuenta", cta)]
+    if not incluir_archivadas:
+        must.append(store.cond_viva())
     if tipo:
         must.append(store.cond("tipo", _valida_tipo(tipo)))
     if folder_id:
@@ -373,8 +499,8 @@ def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | N
 
 def buscar(cta: str, query: str = "", tipo: str | None = None,
            folder_id: str | None = None, tags: list[str] | None = None,
-           limit: int = 10) -> list[dict]:
-    must = _must(cta, tipo, folder_id, tags)
+           limit: int = 10, incluir_archivadas: bool = False) -> list[dict]:
+    must = _must(cta, tipo, folder_id, tags, incluir_archivadas)
 
     # Camino vectorial (embeddings activos + hay query).
     if settings.embeddings_enabled and query.strip():
@@ -413,7 +539,7 @@ def listar_recientes(cta: str, limit: int = 10) -> list[dict]:
     Una entrada nunca usada no tiene `last_used`, y Qdrant excluye del `order_by`
     los puntos sin ese campo: sin el relleno, una cuenta recién poblada se vería
     vacía."""
-    must = [store.cond("cuenta", cta)]
+    must = [store.cond("cuenta", cta), store.cond_viva()]
     salida = store.scroll(store.ENTRADAS, must=must, order_key="last_used", limit=limit)
     if len(salida) < limit:
         vistos = {p["_id"] for p in salida}

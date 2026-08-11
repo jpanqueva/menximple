@@ -26,10 +26,11 @@ def _g(fn, *args, **kwargs):
 # --- Navegación ---
 
 @mcp.tool
-def listar(folder_id: str | None = None) -> dict:
+def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> dict:
     """Lista el contenido de una carpeta (subcarpetas y entradas).
-    Sin `folder_id` devuelve la raíz de la cuenta más la documentación de uso."""
-    return _g(repo.listar, auth.cuenta_actual(), folder_id)
+    Sin `folder_id` devuelve la raíz de la cuenta más la documentación de uso.
+    Lo borrado (archivado) no sale salvo que pidas `incluir_archivadas=True`."""
+    return _g(repo.listar, auth.cuenta_actual(), folder_id, incluir_archivadas)
 
 
 # --- Carpetas ---
@@ -84,14 +85,59 @@ def cargar_contexto(entry_ids: list[str]) -> list[dict]:
     return _g(repo.cargar_contexto, auth.cuenta_actual(), entry_ids)
 
 
+# --- Borrar = archivar (reversible) ---
+
+@mcp.tool
+def borrar_entrada(entry_id: str, motivo: str | None = None) -> dict:
+    """Borra una memoria. **No la destruye**: la archiva, así que deja de salir en
+    `listar`/`buscar` pero se puede recuperar con `restaurar_entrada` y sigue
+    accesible por id. Aun así, confírmalo con el usuario antes: para él es un
+    borrado. `motivo` queda guardado para saber por qué se fue."""
+    return _g(repo.archivar_entrada, auth.cuenta_actual(), entry_id, True, motivo)
+
+
+@mcp.tool
+def restaurar_entrada(entry_id: str) -> dict:
+    """Devuelve al árbol una memoria borrada."""
+    return _g(repo.archivar_entrada, auth.cuenta_actual(), entry_id, False, None)
+
+
+@mcp.tool
+def borrar_carpeta(folder_id: str, motivo: str | None = None) -> dict:
+    """Borra una carpeta **con todo lo que cuelga de ella** (subcarpetas y memorias).
+    Tampoco destruye nada: archiva. `arrastradas` dice cuántas cosas se fueron con
+    ella. Confírmalo con el usuario: puede llevarse mucho más de lo que él cree."""
+    return _g(repo.archivar_carpeta, auth.cuenta_actual(), folder_id, True, motivo)
+
+
+@mcp.tool
+def restaurar_carpeta(folder_id: str) -> dict:
+    """Devuelve al árbol una carpeta borrada y lo que se archivó junto con ella.
+    Lo que ya estaba borrado por su cuenta se queda borrado."""
+    return _g(repo.archivar_carpeta, auth.cuenta_actual(), folder_id, False, None)
+
+
+@mcp.tool
+def ver_historial(entry_id: str) -> dict:
+    """Versiones anteriores de una memoria, de la más nueva a la más vieja.
+
+    Cada `editar_entrada` guarda la versión previa completa. Úsala para ver qué
+    decía antes o para recuperar un texto que se sobrescribió."""
+    return _g(repo.ver_historial, auth.cuenta_actual(), entry_id)
+
+
 # --- Búsqueda ---
 
 @mcp.tool
 def buscar(query: str = "", tipo: str | None = None, folder_id: str | None = None,
-           tags: list[str] | None = None, limit: int = 10) -> list[dict]:
+           tags: list[str] | None = None, limit: int = 10,
+           incluir_archivadas: bool = False) -> list[dict]:
     """Busca entradas por texto/vector + filtros de metadatos (tipo, carpeta, tags).
-    Devuelve resúmenes (no el contexto completo). `folder_id` restringe al subárbol."""
-    return _g(repo.buscar, auth.cuenta_actual(), query, tipo, folder_id, tags, limit)
+    Devuelve resúmenes (no el contexto completo). `folder_id` restringe al subárbol.
+    `titulo` y `resumen` casan por prefijo: "corr" encuentra "Correlativo".
+    Lo borrado (archivado) no sale salvo `incluir_archivadas=True`."""
+    return _g(repo.buscar, auth.cuenta_actual(), query, tipo, folder_id, tags, limit,
+              incluir_archivadas)
 
 
 @mcp.tool

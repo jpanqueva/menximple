@@ -33,8 +33,12 @@ Sin apikey válida no se accede a nada.
 3. **Cuando aprendas algo reutilizable**, guárdalo: `crear_entrada` en la carpeta
    correcta, con un `resumen` claro y el `tipo` adecuado.
 4. **Si algo cambió**, edita con `editar_entrada` (queda el historial); no dupliques.
+   Lo que decía antes se consulta con `ver_historial`.
 5. **Organiza** con `crear_carpeta`/`editar_carpeta` cuando haga falta una nueva
    agrupación.
+6. **Borrar no destruye**: `borrar_entrada`/`borrar_carpeta` archivan, y
+   `restaurar_*` deshace. Aun así confírmalo con el usuario antes de borrar —
+   borrar una carpeta se lleva todo su subárbol.
 
 ## Tipos
 - `credencial`: datos de acceso.

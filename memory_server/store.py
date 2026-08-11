@@ -75,6 +75,15 @@ def cond_text(key: str, text: str) -> FieldCondition:
     return FieldCondition(key=key, match=MatchText(text=text))
 
 
+def cond_viva() -> Filter:
+    """Condición anidada que deja fuera lo archivado (nuestro 'borrado').
+
+    Va como `must_not` y no como `archivada=False` a propósito: lo guardado antes
+    de que el campo existiera no lo tiene, y un `must_not` no excluye lo que no
+    casa — un `match` sí lo dejaría fuera."""
+    return Filter(must_not=[cond("archivada", True)])
+
+
 def _flt(must) -> Filter | None:
     return Filter(must=must) if must else None
 
@@ -101,11 +110,13 @@ def ensure_collections() -> None:
         )
 
     kw, flt, txt = PayloadSchemaType.KEYWORD, PayloadSchemaType.FLOAT, PayloadSchemaType.TEXT
+    bol = PayloadSchemaType.BOOL
     _idx(CUENTAS, {"apikey": kw, "slug": kw})
-    _idx(CARPETAS, {"cuenta": kw, "parent_id": kw, "ancestros": kw, "updated_at": flt})
+    _idx(CARPETAS, {"cuenta": kw, "parent_id": kw, "ancestros": kw, "updated_at": flt,
+                    "archivada": bol})
     _idx(ENTRADAS, {
         "cuenta": kw, "folder_id": kw, "ancestros": kw, "tipo": kw, "tags": kw,
-        "updated_at": flt, "last_used": flt,
+        "updated_at": flt, "last_used": flt, "archivada": bol,
         # Título y resumen se buscan escribiendo a medias ("corr" -> "Correlativo"),
         # así que van indexados por prefijo. El contexto no: indexar cada prefijo de
         # cada palabra de un texto largo multiplica el índice sin ganar nada, porque
