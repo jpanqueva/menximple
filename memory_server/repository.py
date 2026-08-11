@@ -582,7 +582,7 @@ def listar(cta: str, folder_id: str | None = None,
     return out
 
 
-def arbol(cta: str, folder_id: str | None = None, profundidad: int = 3,
+def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
     """Dibuja el árbol de la cuenta en texto, para verlo de un vistazo.
 

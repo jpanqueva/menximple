@@ -35,7 +35,7 @@ def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> di
 
 
 @mcp.tool
-def arbol(folder_id: str | None = None, profundidad: int = 3,
+def arbol(folder_id: str | None = None, profundidad: int = 6,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
     """Toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
 
