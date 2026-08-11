@@ -39,9 +39,16 @@ def arbol(folder_id: str | None = None, profundidad: int = 3,
     """Dibuja toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
 
     Es la forma más barata de saber qué hay: una sola llamada en vez de ir
-    entrando carpeta por carpeta con `listar`. Úsala al empezar en una cuenta que
-    no conoces, y muéstrasela al usuario cuando tenga que elegir memorias sin el
-    selector visual — puede pedirlas por su número.
+    entrando carpeta por carpeta con `listar`.
+
+    Cuándo usarla:
+    - Al empezar en una cuenta que no conoces.
+    - Cuando el usuario pregunta "qué memorias tengo" — enséñale el árbol tal cual.
+    - **Cuando una memoria no aparece buscando.** Es lo que salva la situación: el
+      usuario recuerda que guardó algo pero no con qué palabras, y viéndolo la
+      reconoce. Enséñaselo antes de decirle que no existe.
+    - Cuando no hay selector visual y tiene que elegir: pide las memorias por su
+      número y pásaselos a `cargar_contexto` tal cual.
 
     `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo que quede
     cortado se anuncia, no se esconde); `con_memorias=False` deja solo el
@@ -91,6 +98,7 @@ def editar_entrada(entry_id: str, titulo: str | None = None, resumen: str | None
 @mcp.tool
 def obtener_entrada(entry_id: str, marcar_uso: bool = True) -> dict:
     """Devuelve una entrada completa (incluye `contexto`) y marca su uso.
+    `entry_id` acepta el uuid o el consecutivo (`"11"` o `"#11"`).
     Usa `marcar_uso=False` solo para previsualizar sin registrar la carga."""
     return _g(repo.obtener_entrada, auth.cuenta_actual(), entry_id, marcar_uso)
 
@@ -98,7 +106,10 @@ def obtener_entrada(entry_id: str, marcar_uso: bool = True) -> dict:
 @mcp.tool
 def cargar_contexto(entry_ids: list[str]) -> list[dict]:
     """Devuelve el `contexto` completo de varias entradas y marca su uso.
-    Es la tool para cargar memorias al contexto del agente."""
+    Es la tool para cargar memorias al contexto del agente.
+
+    Cada id puede ser el uuid o el **consecutivo**: si el usuario dice "carga la 11
+    y la 4", llama directamente con `["11", "4"]` — no busques primero."""
     return _g(repo.cargar_contexto, auth.cuenta_actual(), entry_ids)
 
 

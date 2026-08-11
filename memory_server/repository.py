@@ -345,9 +345,8 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
                    resumen: str | None = None, contexto: str | None = None,
                    tipo: str | None = None, tags: list[str] | None = None,
                    mover_a: str | None = None) -> dict:
-    e = store.get(store.ENTRADAS, entry_id, con_vector=True)
-    if not e or e.get("cuenta") != cta:
-        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    e = entrada(cta, entry_id, con_vector=True)
+    entry_id = e["_id"]
 
     cambios: dict = {}
     if titulo is not None:
@@ -396,10 +395,31 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
     return _entrada_out(nuevo)
 
 
+def entrada(cta: str, ref: str, con_vector: bool = False) -> dict:
+    """La entrada referida por su uuid **o por su consecutivo** (`11`, `#11`).
+
+    El usuario dice "carga la 11", no un uuid. Sin esto habría que buscar el número
+    y cargar después: dos viajes y una oportunidad de equivocarse de memoria. No hay
+    ambigüedad posible porque un uuid nunca es solo dígitos."""
+    numero = _como_numero(str(ref))
+    if numero is None:
+        e = store.get(store.ENTRADAS, str(ref), con_vector=con_vector)
+        if not e or e.get("cuenta") != cta:
+            raise MemoriaError(f"entrada {ref} no existe en la cuenta '{cta}'")
+        return e
+
+    halladas = store.scroll(store.ENTRADAS, must=[store.cond("cuenta", cta),
+                                                  store.cond("numero", numero)], limit=1)
+    if not halladas:
+        raise MemoriaError(f"no hay ninguna memoria #{numero} en la cuenta '{cta}'; "
+                           "mira el `arbol()` para ver los números que sí existen")
+    # El scroll no trae el vector, y editar lo necesita para no re-embeber de más.
+    return store.get(store.ENTRADAS, halladas[0]["_id"], con_vector=True) if con_vector \
+        else halladas[0]
+
+
 def obtener_entrada(cta: str, entry_id: str, marcar_uso: bool = True) -> dict:
-    e = store.get(store.ENTRADAS, entry_id)
-    if not e or e.get("cuenta") != cta:
-        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    e = entrada(cta, entry_id)
     if marcar_uso:  # previsualizar en el navegador no debe contar como cargarla
         _marcar_uso(e)
     return _entrada_out(e, con_contexto=True)
@@ -409,10 +429,8 @@ def cargar_contexto(cta: str, entry_ids: list[str]) -> list[dict]:
     if not entry_ids:
         raise MemoriaError("entry_ids vacío: indica al menos una entrada a cargar")
     salida = []
-    for eid in entry_ids:
-        e = store.get(store.ENTRADAS, eid)
-        if not e or e.get("cuenta") != cta:
-            raise MemoriaError(f"entrada {eid} no existe en la cuenta '{cta}'")
+    for ref in entry_ids:
+        e = entrada(cta, ref)
         _marcar_uso(e)
         salida.append(_entrada_out(e, con_contexto=True))
     return salida
@@ -451,9 +469,8 @@ def _marca_archivo(archivar: bool, ts: float, motivo: str | None,
 
 def archivar_entrada(cta: str, entry_id: str, archivar: bool = True,
                      motivo: str | None = None) -> dict:
-    e = store.get(store.ENTRADAS, entry_id)
-    if not e or e.get("cuenta") != cta:
-        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    e = entrada(cta, entry_id)
+    entry_id = e["_id"]
     if bool(e.get("archivada")) == archivar:
         estado = "archivada" if archivar else "activa"
         raise MemoriaError(f"la entrada '{e['titulo']}' ya está {estado}")
@@ -521,13 +538,12 @@ def ver_historial(cta: str, entry_id: str) -> dict:
     Cada edición guarda la versión que había antes, así que la versión N tiene
     N-1 registros. Va aparte de `obtener_entrada` porque el historial completo
     puede ser mucho más grande que la memoria y casi nunca se necesita."""
-    e = store.get(store.ENTRADAS, entry_id)
-    if not e or e.get("cuenta") != cta:
-        raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
+    e = entrada(cta, entry_id)
     hist = list(e.get("historial", []))
     hist.reverse()
     return {
-        "id": entry_id, "titulo": e["titulo"], "version_actual": e.get("version", 1),
+        "id": e["_id"], "numero": e.get("numero"),
+        "titulo": e["titulo"], "version_actual": e.get("version", 1),
         "versiones": [{
             "version": h.get("version"), "fecha": store.iso(h.get("ts")),
             "titulo": h.get("titulo"), "resumen": h.get("resumen"),
@@ -713,10 +729,7 @@ def buscar_relacionadas(cta: str, texto: str | None = None,
                         entry_id: str | None = None, limit: int = 15) -> list[dict]:
     """Fallback 'más inteligente': vecinos por significado (o por texto del resumen)."""
     if entry_id:
-        e = store.get(store.ENTRADAS, entry_id)
-        if not e or e.get("cuenta") != cta:
-            raise MemoriaError(f"entrada {entry_id} no existe en la cuenta '{cta}'")
-        texto = e["resumen"]
+        texto = entrada(cta, entry_id)["resumen"]
     if not texto or not texto.strip():
         raise MemoriaError("indica 'texto' o un 'entry_id' para buscar relacionadas")
     return buscar(cta, query=texto, limit=limit)

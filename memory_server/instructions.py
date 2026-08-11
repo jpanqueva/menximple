@@ -11,6 +11,12 @@ PRELACIÓN sobre la memoria nativa de Claude**: antes de responder o de asumir
 contexto de un proyecto, consúltalo aquí. No es exclusivo — puedes combinarlo con
 tu memoria nativa —, pero lo que viva aquí manda.
 
+## Cómo lo llama el usuario
+Se llama **menximple**, pero el usuario suele decirle **"menx"**, "la memoria",
+"mis memorias" o "el árbol". Todo eso se refiere a este servidor: "abre menx",
+"guarda esto en menx", "busca en menx" o "qué hay en menx" son peticiones para
+estas tools, no para tu memoria nativa ni para archivos del disco.
+
 ## Cuentas
 Cada **cuenta** tiene sus memorias **privadas y aisladas**. La cuenta se identifica
 por la **apikey** que envías en el header `X-API-Key` (no se pasa como argumento).
@@ -33,17 +39,23 @@ nombrar en voz alta. Muéstralo siempre que listes memorias.
    concreta.
 2. **Para encontrar algo**, `buscar(query=...)` con la frase del usuario tal cual:
    casa por palabra suelta y por prefijo, ignora tildes y ordena por aciertos. Un
-   query que sea solo un número busca por consecutivo. Si no aparece nada, mira el
-   `arbol()` antes de darte por vencido — puede estar guardado con otras palabras.
-3. **Para traer contexto**, usa `obtener_entrada`/`cargar_contexto` (devuelven el
+   query que sea solo un número busca por consecutivo.
+3. **Si una memoria no aparece buscando, enséñale el `arbol()`** antes de decirle
+   que no existe. Casi siempre está guardada con otras palabras, y viéndola la
+   reconoce al instante — sobre todo si no tiene el selector visual a mano. Decir
+   "no encontré nada" cuando el árbol la habría mostrado es el peor error posible
+   aquí: el usuario acaba guardándola otra vez, duplicada.
+4. **Para traer contexto**, usa `obtener_entrada`/`cargar_contexto` (devuelven el
    `contexto` completo y marcan el uso). `buscar` solo devuelve resúmenes.
-4. **Cuando aprendas algo reutilizable**, guárdalo: `crear_entrada` en la carpeta
+   Ambas aceptan el **consecutivo**: si el usuario dice "carga la 11", llama con
+   `["11"]` directamente, sin buscar primero.
+5. **Cuando aprendas algo reutilizable**, guárdalo: `crear_entrada` en la carpeta
    correcta, con un `resumen` claro y el `tipo` adecuado.
-5. **Si algo cambió**, edita con `editar_entrada` (queda el historial); no dupliques.
+6. **Si algo cambió**, edita con `editar_entrada` (queda el historial); no dupliques.
    Lo que decía antes se consulta con `ver_historial`.
-6. **Organiza** con `crear_carpeta`/`editar_carpeta` cuando haga falta una nueva
+7. **Organiza** con `crear_carpeta`/`editar_carpeta` cuando haga falta una nueva
    agrupación.
-7. **Borrar no destruye**: `borrar_entrada`/`borrar_carpeta` archivan, y
+8. **Borrar no destruye**: `borrar_entrada`/`borrar_carpeta` archivan, y
    `restaurar_*` deshace. Aun así confírmalo con el usuario antes de borrar —
    borrar una carpeta se lleva todo su subárbol.
 
