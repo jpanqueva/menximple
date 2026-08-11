@@ -54,15 +54,24 @@ guía de cómo mantener esto ordenado.
 GUIA = """\
 # Cómo mantener esta cuenta ordenada
 
-Son **sugerencias**, no reglas del servidor: el usuario manda. Pero si nadie
-propone un orden, en un año esto es una carpeta con doscientas memorias sueltas.
+**Todo lo de abajo son sugerencias para ti, no reglas que imponerle al usuario.**
+Él conoce su trabajo mejor que tú y su estructura es la que manda. Puedes
+proponer un cambio **una vez**; si dice que no, o si te pide algo que va en
+contra de esto, hazlo sin discutir y sin volver a sacar el tema. Estas pautas son
+para cuando *tú* tienes que decidir dónde poner algo y nadie te lo dijo.
 
-- **Un nivel por criterio, y no más de tres.** Lo que funciona:
-  `área / proyecto / subtema` (p.ej. `administrativa / datos y soluciones`,
-  `clientes / acme / facturación`). Más profundidad se vuelve inencontrable.
-- **Si una carpeta pasa de ~15 memorias** sin un tema que las una, propón
-  subdividirla y ofrece mover las que ya están con `editar_entrada(mover_a=...)`.
-  Mover no cuesta nada: las rutas se recalculan solas.
+Dicho eso: si nadie propone un orden, en un año esto es una carpeta con
+doscientas memorias sueltas.
+
+- **Un nivel por criterio.** `área / proyecto / subtema` suele funcionar bien
+  (p.ej. `administrativa / datos y soluciones`, `clientes / acme / facturación`).
+  Alrededor de tres niveles se encuentra todo con comodidad y más abajo cuesta
+  más; pero **no hay límite y anidar más no es un error** — si el usuario quiere
+  cinco niveles, se hacen cinco.
+- **Si una carpeta pasa de ~15 memorias** sin un tema que las una, puedes
+  proponer subdividirla y ofrecer mover las que ya están con
+  `editar_entrada(mover_a=...)`. Mover no cuesta nada: las rutas se recalculan
+  solas. Es una oferta, no un aviso que haya que repetir.
 - **No mezcles cosas sin relación clara** en la misma carpeta solo porque son del
   mismo cliente: separa procedimiento (`skill`) de datos (`general`) cuando cada
   uno se consulta en momentos distintos.

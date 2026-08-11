@@ -148,14 +148,18 @@ por sí solo. Eso lo resolverían los embeddings, hoy apagados a propósito.
 
 ## 6. Reglas de orden (sugerencias)
 
-El servidor no impone ninguna estructura. Estas son las que evitan que en un año
-tengas doscientas memorias sueltas:
+El servidor **no impone ninguna estructura** y el agente tampoco debería: son
+ideas para que en un año no tengas doscientas memorias sueltas. Tu forma de
+organizarte manda. Si el agente te propone reorganizar y le dices que no, no
+debe volver a sacarlo.
 
-- **Un nivel por criterio, máximo tres.** `área / proyecto / subtema`:
-  `administrativa / datos y soluciones`, `clientes / acme / facturación`.
-  Más profundidad se vuelve inencontrable.
-- **Si una carpeta pasa de ~15 memorias** sin un tema que las una, subdivídela.
-  Mover no cuesta nada: `editar_entrada(mover_a=...)` y las rutas se recalculan solas.
+- **Un nivel por criterio.** `área / proyecto / subtema` suele ir bien:
+  `administrativa / datos y soluciones`, `clientes / acme / facturación`. Con
+  unos tres niveles se encuentra todo cómodamente, pero **no hay límite**: si te
+  sirven cinco, usa cinco.
+- **Si una carpeta pasa de ~15 memorias** sin un tema que las una, quizá toque
+  subdividirla. Mover no cuesta nada: `editar_entrada(mover_a=...)` y las rutas
+  se recalculan solas.
 - **No mezcles cosas sin relación clara** solo porque son del mismo cliente.
   Separa el procedimiento (`skill`) de los datos (`general`) si los consultas en
   momentos distintos.
