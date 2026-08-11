@@ -122,19 +122,42 @@ def _texto_busqueda(titulo: str, resumen: str, tags: list[str] | None) -> str:
     return _normaliza(" ".join([titulo or "", resumen or "", " ".join(tags or [])]))
 
 
+# Palabras que no dicen nada de lo que se busca. Sin esta lista, "receta de arroz
+# con pollo" devuelve memorias de facturación: "con" es prefijo de "contactos".
+_VACIAS = {
+    "al", "algo", "alguna", "algunas", "alguno", "algunos", "ante", "aqui", "asi",
+    "cada", "como", "con", "contra", "cual", "cuales", "cuando", "cuanta", "cuanto",
+    "de", "del", "desde", "donde", "dos", "el", "ella", "ellos", "en", "entre", "era",
+    "eres", "es", "esa", "ese", "eso", "esta", "estan", "estas", "este", "esto",
+    "estos", "estoy", "fue", "ha", "hay", "hacer", "hago", "la", "las", "le", "les",
+    "lo", "los", "mas", "me", "mi", "mis", "mucho", "muy", "necesito", "ni", "no",
+    "nos", "o", "otra", "otro", "para", "pero", "poder", "por", "porque", "puede",
+    "puedo", "que", "quien", "quiero", "se", "ser", "si", "sin", "sobre", "solo",
+    "son", "su", "sus", "tambien", "tengo", "tiene", "todo", "toda", "todos", "tu",
+    "un", "una", "uno", "unos", "y", "ya",
+}
+
+
 def _palabras(query: str) -> list[str]:
-    return _PALABRAS.findall(_normaliza(query))
+    """Palabras con las que vale la pena buscar. Si el usuario solo escribió palabras
+    vacías, se usan tal cual: peor es no buscar nada."""
+    todas = _PALABRAS.findall(_normaliza(query))
+    return [w for w in todas if w not in _VACIAS] or todas
 
 
 def _puntaje(p: dict, palabras: list[str]) -> int:
-    """Cuántas palabras del query aparecen (como prefijo) en título/resumen/tags.
+    """Cuánto pega el query con esta memoria.
 
-    Es lo que permite pedir con una frase entera: casa con **alguna** palabra, pero
-    la que casa con más queda arriba."""
-    tokens = _PALABRAS.findall(p.get("busqueda") or
-                               _texto_busqueda(p.get("titulo", ""), p.get("resumen", ""),
-                                               p.get("tags")))
-    return sum(1 for w in palabras if any(tk.startswith(w) for tk in tokens))
+    Casar en el título vale más que en el resumen, y este más que en un tag: un
+    acierto en el nombre es de lo que va la memoria, y un tag lo comparte media
+    cuenta. Sin este peso, empatan todas y el desempate acaba siendo la fecha."""
+    campos = ((4, p.get("titulo", "")), (2, p.get("resumen", "")),
+              (1, " ".join(p.get("tags") or [])))
+    total = 0
+    for peso, texto in campos:
+        tokens = _PALABRAS.findall(_normaliza(texto))
+        total += peso * sum(1 for w in palabras if any(tk.startswith(w) for tk in tokens))
+    return total
 
 
 def _como_numero(query: str) -> int | None:
