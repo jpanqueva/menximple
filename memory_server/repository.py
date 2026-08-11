@@ -582,6 +582,39 @@ def listar(cta: str, folder_id: str | None = None,
     return out
 
 
+def _hace(ts: float | None) -> str:
+    """Antigüedad en relativo. En el árbol un ISO no dice nada de un vistazo y
+    ocupa el triple."""
+    if not ts:
+        return ""
+    seg = store.now_ts() - ts
+    if seg < 3600:
+        return f"hace {max(1, int(seg // 60))} min"
+    if seg < 86400:
+        return f"hace {int(seg // 3600)} h"
+    if seg < 86400 * 60:
+        return f"hace {int(seg // 86400)} d"
+    return f"hace {int(seg // 2592000)} meses"
+
+
+def _uso(p: dict) -> str:
+    """Tamaño y uso de una memoria, para el árbol.
+
+    Va aquí porque este texto es lo que ve el agente al ayudar a elegir qué
+    cargar, y sin esto seis memorias del mismo tema son indistinguibles: no sabe
+    cuál es la viva, cuál nadie ha abierto nunca, ni cuánto contexto le cuesta
+    cada una. Lo que no se ha cargado nunca se dice con todas las letras — un
+    hueco se lee como "falta el dato", y aquí el dato **es** que nadie la ha usado."""
+    partes = [f"{_tokens(p.get('contexto', ''))} tok"]
+    veces = p.get("use_count") or 0
+    if veces:
+        partes.append(f"{veces} carga{'s' if veces > 1 else ''}")
+        partes.append(_hace(p.get("last_used")))
+    else:
+        partes.append("nunca cargada")
+    return "  " + " · ".join(x for x in partes if x)
+
+
 def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
     """Dibuja el árbol de la cuenta en texto, para verlo de un vistazo.
@@ -651,7 +684,7 @@ def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
                 num = f"#{obj.get('numero')}" if obj.get("numero") else "#?"
                 marca = " [borrada]" if obj.get("archivada") else ""
                 lineas.append(f"{sangria}{rama}{num:<5}{obj['titulo']}"
-                              f"  [{obj.get('tipo', '?')}]{marca}")
+                              f"  [{obj.get('tipo', '?')}]{marca}{_uso(obj)}")
 
     pinta(folder_id, "", 0)
     if len(lineas) == 1:

@@ -37,12 +37,14 @@ def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> di
 @mcp.tool
 def arbol(folder_id: str | None = None, profundidad: int = 6,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
-    """Toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
+    """Toda la cuenta en un árbol de texto: consecutivo, tipo, tamaño y uso de cada
+    memoria (`340 tok · 4 cargas · hace 2 h`, o `nunca cargada`).
 
     Una llamada en vez de ir entrando carpeta por carpeta. Úsala al llegar a una
     cuenta nueva, cuando pregunten "qué memorias tengo", **cuando algo no aparezca
     buscando** (antes de decir que no existe) y para que elijan por número si no
-    hay selector visual.
+    hay selector visual. El tamaño y el uso están para que puedas recomendar cuál
+    cargar sin llenarle el contexto al usuario.
 
     `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo cortado se
     anuncia); `con_memorias=False` deja solo las carpetas."""
