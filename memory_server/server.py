@@ -28,31 +28,24 @@ def _g(fn, *args, **kwargs):
 @mcp.tool
 def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> dict:
     """Lista el contenido de una carpeta (subcarpetas y entradas).
-    Sin `folder_id` devuelve la raíz de la cuenta más la documentación de uso.
-    Lo borrado (archivado) no sale salvo que pidas `incluir_archivadas=True`."""
+    Sin `folder_id` devuelve la raíz **más la guía para mantener la cuenta
+    ordenada**: pídela antes de crear carpetas o reorganizar. Para ver todo de un
+    vistazo usa `arbol`. Lo borrado no sale salvo `incluir_archivadas=True`."""
     return _g(repo.listar, auth.cuenta_actual(), folder_id, incluir_archivadas)
 
 
 @mcp.tool
 def arbol(folder_id: str | None = None, profundidad: int = 3,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
-    """Dibuja toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
+    """Toda la cuenta en un árbol de texto, con el consecutivo de cada memoria.
 
-    Es la forma más barata de saber qué hay: una sola llamada en vez de ir
-    entrando carpeta por carpeta con `listar`.
+    Una llamada en vez de ir entrando carpeta por carpeta. Úsala al llegar a una
+    cuenta nueva, cuando pregunten "qué memorias tengo", **cuando algo no aparezca
+    buscando** (antes de decir que no existe) y para que elijan por número si no
+    hay selector visual.
 
-    Cuándo usarla:
-    - Al empezar en una cuenta que no conoces.
-    - Cuando el usuario pregunta "qué memorias tengo" — enséñale el árbol tal cual.
-    - **Cuando una memoria no aparece buscando.** Es lo que salva la situación: el
-      usuario recuerda que guardó algo pero no con qué palabras, y viéndolo la
-      reconoce. Enséñaselo antes de decirle que no existe.
-    - Cuando no hay selector visual y tiene que elegir: pide las memorias por su
-      número y pásaselos a `cargar_contexto` tal cual.
-
-    `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo que quede
-    cortado se anuncia, no se esconde); `con_memorias=False` deja solo el
-    esqueleto de carpetas."""
+    `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo cortado se
+    anuncia); `con_memorias=False` deja solo las carpetas."""
     return _g(repo.arbol, auth.cuenta_actual(), folder_id, profundidad,
               con_memorias, incluir_archivadas)
 
@@ -118,9 +111,8 @@ def cargar_contexto(entry_ids: list[str]) -> list[dict]:
 @mcp.tool
 def borrar_entrada(entry_id: str, motivo: str | None = None) -> dict:
     """Borra una memoria. **No la destruye**: la archiva, así que deja de salir en
-    `listar`/`buscar` pero se puede recuperar con `restaurar_entrada` y sigue
-    accesible por id. Aun así, confírmalo con el usuario antes: para él es un
-    borrado. `motivo` queda guardado para saber por qué se fue."""
+    `listar`/`buscar` pero vuelve con `restaurar_entrada`. Confírmalo igual con el
+    usuario: para él es un borrado. `motivo` queda guardado."""
     return _g(repo.archivar_entrada, auth.cuenta_actual(), entry_id, True, motivo)
 
 
@@ -132,9 +124,9 @@ def restaurar_entrada(entry_id: str) -> dict:
 
 @mcp.tool
 def borrar_carpeta(folder_id: str, motivo: str | None = None) -> dict:
-    """Borra una carpeta **con todo lo que cuelga de ella** (subcarpetas y memorias).
-    Tampoco destruye nada: archiva. `arrastradas` dice cuántas cosas se fueron con
-    ella. Confírmalo con el usuario: puede llevarse mucho más de lo que él cree."""
+    """Borra una carpeta **con todo lo que cuelga de ella**. Tampoco destruye:
+    archiva, y `arrastradas` dice cuántas cosas se fueron con ella. Confírmalo con
+    el usuario: puede llevarse mucho más de lo que él cree."""
     return _g(repo.archivar_carpeta, auth.cuenta_actual(), folder_id, True, motivo)
 
 
@@ -160,14 +152,13 @@ def ver_historial(entry_id: str) -> dict:
 def buscar(query: str = "", tipo: str | None = None, folder_id: str | None = None,
            tags: list[str] | None = None, limit: int = 15,
            incluir_archivadas: bool = False) -> list[dict]:
-    """Busca entradas por texto/vector + filtros de metadatos (tipo, carpeta, tags).
-    Devuelve resúmenes (no el contexto completo). `folder_id` restringe al subárbol.
-    Puedes pasarle la frase del usuario tal cual: casa por palabra suelta y por
-    prefijo, ignorando tildes, y ordena por cuántas palabras acertó ("corr"
-    encuentra "Correlativo"; "facturación" encuentra "Facturacion").
-    Un `query` que sea solo un número (o `#12`) busca por el consecutivo de la memoria;
-    si no existe ninguna con ese número, se reintenta como texto (salvo con `#`).
-    Lo borrado (archivado) no sale salvo `incluir_archivadas=True`."""
+    """Busca entradas por texto + filtros (tipo, carpeta, tags). Devuelve resúmenes,
+    no el contexto: para eso está `cargar_contexto`.
+
+    Pásale la frase del usuario tal cual: casa por palabra suelta y por prefijo,
+    ignora tildes y ordena por aciertos. Un `query` que sea solo un número (o `#12`)
+    busca por consecutivo. `folder_id` restringe al subárbol. Lo borrado no sale
+    salvo `incluir_archivadas=True`."""
     return _g(repo.buscar, auth.cuenta_actual(), query, tipo, folder_id, tags, limit,
               incluir_archivadas)
 
