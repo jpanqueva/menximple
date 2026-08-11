@@ -130,7 +130,7 @@ def ver_historial(entry_id: str) -> dict:
 
 @mcp.tool
 def buscar(query: str = "", tipo: str | None = None, folder_id: str | None = None,
-           tags: list[str] | None = None, limit: int = 10,
+           tags: list[str] | None = None, limit: int = 15,
            incluir_archivadas: bool = False) -> list[dict]:
     """Busca entradas por texto/vector + filtros de metadatos (tipo, carpeta, tags).
     Devuelve resúmenes (no el contexto completo). `folder_id` restringe al subárbol.

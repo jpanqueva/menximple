@@ -584,7 +584,7 @@ def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | N
 
 def buscar(cta: str, query: str = "", tipo: str | None = None,
            folder_id: str | None = None, tags: list[str] | None = None,
-           limit: int = 10, incluir_archivadas: bool = False) -> list[dict]:
+           limit: int = 15, incluir_archivadas: bool = False) -> list[dict]:
     must = _must(cta, tipo, folder_id, tags, incluir_archivadas)
 
     # Camino vectorial (embeddings activos + hay query).
@@ -632,7 +632,7 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
 
 
 def buscar_relacionadas(cta: str, texto: str | None = None,
-                        entry_id: str | None = None, limit: int = 10) -> list[dict]:
+                        entry_id: str | None = None, limit: int = 15) -> list[dict]:
     """Fallback 'más inteligente': vecinos por significado (o por texto del resumen)."""
     if entry_id:
         e = store.get(store.ENTRADAS, entry_id)
