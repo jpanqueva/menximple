@@ -58,16 +58,21 @@ jhon
 
 ## 1. Requisitos
 
-```bash
-claude --version     # Claude Code instalado
-python3 --version    # 3.10 o superior
-```
-
-Ubuntu 22.04 y 24.04 ya traen Python suficiente. Si falta algo:
+**Para tener memoria en Claude Code solo hace falta Claude Code.** El hub corre en
+el servidor: aquí no se instala nada más.
 
 ```bash
-sudo apt update && sudo apt install -y python3 python3-venv git
+claude --version     # lo único imprescindible
+python3 --version    # cualquier versión sirve, es solo para el paso 3
 ```
+
+- **El hub no usa Python.** Da igual qué versión tengas, o si no tienes.
+- El bloque de permisos del paso 3 usa `python3`, pero le vale **cualquier
+  versión** (3.6 en adelante). Si no hay `python3`, ahí mismo tienes la
+  alternativa: editar el archivo a mano.
+- **Python 3.10+ solo hace falta para el paso 4**, el cliente de consola, que es
+  opcional. Ubuntu 20.04 trae 3.8 y eso **no impide** completar los pasos 2 y 3:
+  no instales nada para saltar ese requisito salvo que el usuario quiera el CLI.
 
 ---
 
@@ -106,9 +111,12 @@ Debe salir **✓ Connected**. Queda guardado en `~/.claude.json`.
 ## 3. Quitar las confirmaciones de permisos
 
 Sin esto Claude Code pregunta cada vez que usa una tool de memoria. Las reglas van
-en `~/.claude/settings.json`. Este bloque respeta lo que ya tengas:
+en `~/.claude/settings.json`. Este bloque respeta lo que ya tengas y **sirve con
+cualquier `python3`**, no hace falta 3.10:
 
 ```bash
+cp ~/.claude/settings.json ~/.claude/settings.json.bak 2>/dev/null   # por si acaso
+
 python3 - <<'PY'
 import json, os
 f = os.path.expanduser("~/.claude/settings.json")
@@ -143,12 +151,36 @@ siga preguntando antes de borrar, no pongas esa línea: lista una por una las qu
 sí autorizas (`mcp__menximple__buscar`, `mcp__menximple__arbol`, …) y deja fuera
 `mcp__menximple__borrar_entrada` y `mcp__menximple__borrar_carpeta`.
 
+Si no hay `python3`, edita `~/.claude/settings.json` a mano y añade las dos reglas
+dentro de `permissions.allow`. Comprueba después que sigue siendo JSON válido.
+
+**Con esto ya tienes memoria en Claude Code.** El paso 4 es opcional y no aporta
+nada dentro del agente.
+
 ---
 
 ## 4. (Opcional) El cliente de consola
 
 Solo si quieres usar menximple **fuera** de Claude Code — en un script, un cron o
-una sesión SSH.
+una sesión SSH. Dentro de Claude Code no hace falta.
+
+**Este paso sí necesita Python 3.10+.** Compruébalo antes:
+
+```bash
+python3 --version
+```
+
+Si es menor (Ubuntu 20.04 trae 3.8), **no instales nada por tu cuenta**: pregúntale
+al usuario si quiere el CLI. Si dice que sí, hace falta un intérprete más nuevo:
+
+```bash
+sudo add-apt-repository -y ppa:deadsnakes/ppa && sudo apt update
+sudo apt install -y python3.11 python3.11-venv
+python3.11 -m pip install --user pipx
+python3.11 -m pipx install "git+https://github.com/jpanqueva/menximple@main"
+```
+
+Con Python 3.10+ ya presente:
 
 ```bash
 sudo apt install -y pipx        # en 22.04+; si no existe: python3 -m pip install --user pipx

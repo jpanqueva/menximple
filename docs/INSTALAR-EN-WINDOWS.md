@@ -47,17 +47,32 @@ Dos cosas importantes:
 Abre PowerShell y comprueba:
 
 ```powershell
-python --version    # 3.10 o superior
-claude --version    # Claude Code instalado
-git --version
+claude --version    # lo único imprescindible
+python --version    # 3.10 o superior — solo para el selector visual
+git --version       # solo para instalar el paquete
 ```
 
+Qué necesita cada cosa:
+
+| | qué hace falta |
+|---|---|
+| **Memoria en Claude Code** (el hub) | nada más que Claude Code. No usa Python. |
+| **Selector visual** (la ventana) | Python 3.10+ y git, para instalar el paquete |
+
 Si `python` no responde, instálalo desde [python.org](https://www.python.org/downloads/)
-marcando **"Add python.exe to PATH"**, y reabre la terminal.
+marcando **"Add python.exe to PATH"**, y reabre la terminal. Si el usuario no
+quiere instalar Python, **no te bloquees**: salta el paso 2, registra solo el hub
+en el paso 3 (el primero de los dos comandos) y usa el modo chat — el agente
+enseña el árbol y el usuario elige por número. Dile que el selector visual queda
+pendiente de instalar Python.
 
 ---
 
-## 2. Instalar el cliente
+## 2. Instalar el cliente (para el selector visual)
+
+Esto instala `menximple-mcp`, el servidor local que abre la ventana. **Si no hay
+Python y el usuario no quiere instalarlo, sáltate este paso**: el hub del paso 3
+funciona igual sin él.
 
 No hace falta clonar el repositorio: pip lo descarga solo. Con **pipx**
 (recomendado, aísla el paquete y no toca tu Python):
@@ -94,12 +109,12 @@ después.
 
 ## 3. Registrar los dos servidores MCP
 
-Son **dos** y hacen falta los dos:
+Son dos:
 
-| | qué hace | dónde corre |
-|---|---|---|
-| `menximple` | el hub: buscar, guardar, organizar | en el servidor |
-| `menximple-selector` | abre el selector visual en tu escritorio | **en tu PC** |
+| | qué hace | dónde corre | |
+|---|---|---|---|
+| `menximple` | el hub: buscar, guardar, organizar | en el servidor | imprescindible |
+| `menximple-selector` | abre el selector visual en tu escritorio | **en tu PC** | necesita el paso 2 |
 
 El hub vive en un contenedor y no tiene pantalla donde dibujar: por eso el
 selector tiene que correr aquí.
@@ -169,6 +184,8 @@ Sin esto Claude Code te pregunta cada vez que usa una tool de memoria. Pega este
 bloque en PowerShell — respeta lo que ya tengas configurado:
 
 ```powershell
+Copy-Item "$env:USERPROFILE\.claude\settings.json" "$env:USERPROFILE\.claude\settings.json.bak" -ErrorAction SilentlyContinue
+
 $f = "$env:USERPROFILE\.claude\settings.json"
 if (Test-Path $f) { $s = Get-Content $f -Raw | ConvertFrom-Json } else { $s = [pscustomobject]@{} }
 if (-not $s.permissions) {
@@ -226,6 +243,7 @@ la ventana no, el hub está bien y el problema es el servidor local del paso 3.
 | `missing required argument 'commandOrUrl'` | Faltaron las comillas en `"--"` (paso 3). |
 | `already exists in user config` | Ya estaba registrado. `claude mcp remove --scope user <nombre>` y repite. |
 | `claude` no se reconoce como comando | Claude Code no está instalado o no quedó en el PATH. Reabre PowerShell; si sigue, reinstálalo. |
+| No hay Python, o es menor que 3.10 | Solo afecta al selector visual. Registra únicamente el hub (paso 3, primer comando) y usa el modo chat. |
 | `menximple-selector` no aparece en la lista | La carpeta de scripts no está en el PATH. Regístralo otra vez con la ruta completa que dio `where.exe`. |
 | Aparece pero sale **failed** | Ejecuta `menximple-mcp` a mano: debe quedarse esperando sin imprimir nada (habla por stdin/stdout). Si revienta, falta una dependencia: reinstala con pipx. |
 | **Pending approval** | Lo registraste en un proyecto en vez de con `--scope user`. Repite el paso 3 con esa opción. |
