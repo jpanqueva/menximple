@@ -10,8 +10,10 @@ tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que
 > instalación a medias que parece buena.
 >
 > Lo único que no está aquí — y que **no puede estar**, porque el repositorio es
-> público — son la URL base y la apikey. Si el usuario no te las dio, pídeselas
-> antes de empezar. No las escribas en ningún archivo de ningún repositorio.
+> público — son la **URL base** y la **apikey**. Si el usuario no te las dio,
+> pídeselas antes de empezar. Se usan **solo en el paso 3**, dentro de los dos
+> comandos `claude mcp add`, que las guardan en `%USERPROFILE%\.claude.json`. No
+> las escribas en ningún otro archivo, y menos en uno del repositorio.
 >
 > Al terminar, dile al usuario que **reinicie Claude Code**: hasta entonces las
 > tools nuevas no existen para ti ni para él.
@@ -22,10 +24,13 @@ tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que
 
 Pídele a quien administra el servidor:
 
-| dato | pinta que tiene |
-|---|---|
-| **URL base** del hub | `https://algo.tu-dominio.com/xxxx/api` |
-| **apikey de tu cuenta** | una cadena larga, tuya y personal |
+| dato | pinta que tiene | dónde se usa |
+|---|---|---|
+| **URL base** del hub | `https://algo.tu-dominio.com/xxxx/api` | paso 3 |
+| **apikey de tu cuenta** | una cadena larga, tuya y personal | paso 3 |
+
+Los dos se escriben **una sola vez**, en los comandos del paso 3, y quedan
+guardados en `%USERPROFILE%\.claude.json`. No hay que editar ningún archivo a mano.
 
 Dos cosas importantes:
 
@@ -99,14 +104,37 @@ Son **dos** y hacen falta los dos:
 El hub vive en un contenedor y no tiene pantalla donde dibujar: por eso el
 selector tiene que correr aquí.
 
+### Aquí es donde van la URL y la apikey
+
+**Este paso es el único sitio donde se escriben.** No hay que crear ni editar
+ningún archivo a mano: los dos comandos de abajo las guardan solos en
+`%USERPROFILE%\.claude.json`, que es la configuración del usuario de Windows.
+
+- Cada `<URL>` se reemplaza por la URL base que te dieron — las **dos** veces.
+- Cada `<APIKEY>` se reemplaza por tu apikey — las **dos** veces.
+- Se dejan **sin** los símbolos `<` y `>`.
+
 `--scope user` es lo que hace que valga para **todas** tus sesiones y no solo para
-un proyecto. Reemplaza `<URL>` y `<APIKEY>`:
+un proyecto:
 
 ```powershell
 claude mcp add --scope user --transport http menximple <URL> --header "X-API-Key: <APIKEY>"
 
 claude mcp add --scope user menximple-selector -e "MEMORY_BASE_URL=<URL>" -e "MEMORY_APIKEY=<APIKEY>" "--" menximple-mcp
 ```
+
+Así se ven ya rellenos (valores de ejemplo, **no** sirven):
+
+```powershell
+claude mcp add --scope user --transport http menximple https://memoria.ejemplo.com/abcd/api --header "X-API-Key: Kj7xQ2mNp4RtYw9sZbVc1EhGf6UaLdOi3nTyMr8PxWk"
+
+claude mcp add --scope user menximple-selector -e "MEMORY_BASE_URL=https://memoria.ejemplo.com/abcd/api" -e "MEMORY_APIKEY=Kj7xQ2mNp4RtYw9sZbVc1EhGf6UaLdOi3nTyMr8PxWk" "--" menximple-mcp
+```
+
+> **Agente:** si el usuario no te dio los dos datos, **para y pídeselos**. No
+> inventes una URL, no dejes el placeholder puesto y no escribas la apikey en un
+> `.mcp.json` de proyecto ni en ningún archivo del repositorio — solo con estos
+> dos comandos.
 
 > Las comillas alrededor de `"--"` no sobran: sin ellas PowerShell se lo come y el
 > comando falla con `missing required argument 'commandOrUrl'`.
