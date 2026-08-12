@@ -14,7 +14,51 @@ cp .env.example .env          # edita ADMIN_TOKEN (y embeddings si quieres)
 docker compose up -d --build  # levanta qdrant (con volumen) + api en :8000
 ```
 El MCP queda en `http://TU-SERVIDOR:8000/mcp`. Qdrant persiste en el volumen `qdrant_data`.
-Detrás de un reverse proxy (Nginx/Caddy) para TLS en producción.
+Detrás de un reverse proxy (Nginx/Caddy) para TLS en producción — ver abajo.
+
+### Reverse proxy (Nginx)
+
+El transporte del MCP es Streamable HTTP: las respuestas son `text/event-stream`
+sin `Content-Length`. Eso tiene dos consecuencias que hay que atender o el cliente
+va lento sin que se note por qué.
+
+```nginx
+location /mcp {
+    proxy_pass http://127.0.0.1:8000/mcp;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_buffering off;          # SSE: no acumular la respuesta
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    # El gzip_types global no incluye text/event-stream, así que hay que pedirlo aquí.
+    gzip on;
+    gzip_types text/event-stream application/json;
+    gzip_min_length 1000;
+}
+```
+
+**No pongas `chunked_transfer_encoding off;`.** Parece razonable para SSE y es la
+trampa: sin `Content-Length` y sin chunked, nginx solo puede delimitar el cuerpo
+**cerrando la conexión**, así que devuelve `Connection: close` aunque uvicorn haya
+respondido `keep-alive`. El cliente paga handshake TCP+TLS completo en cada llamada
+(~220 ms medidos contra un servidor a 110 ms de RTT).
+
+Para comprobar que quedó bien, dos requests seguidos deben reutilizar la conexión
+y traer `Content-Encoding: gzip`:
+
+```bash
+curl -s -o /dev/null -w 'tcp=%{time_connect} tls=%{time_appconnect}\n' ... \
+     --next -s -o /dev/null -w 'tcp=%{time_connect} tls=%{time_appconnect}\n' ...
+# el segundo debe marcar tcp=0.000 tls=0.000
+```
 
 ### Actualizar
 ```bash
