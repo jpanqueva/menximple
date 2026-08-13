@@ -37,17 +37,25 @@ def listar(folder_id: str | None = None, incluir_archivadas: bool = False) -> di
 @mcp.tool
 def arbol(folder_id: str | None = None, profundidad: int = 6,
           con_memorias: bool = True, incluir_archivadas: bool = False) -> dict:
-    """Toda la cuenta en un árbol de texto: consecutivo, tipo, tamaño y uso de cada
-    memoria (`340 tok · 4 cargas · hace 2 h`, o `nunca cargada`).
+    """El árbol de la cuenta en texto: consecutivo, tipo, estado, tamaño y uso de
+    cada memoria (`340 tok · 4 cargas · hace 2 h`, o `nunca cargada`).
 
-    Una llamada en vez de ir entrando carpeta por carpeta. Úsala al llegar a una
-    cuenta nueva, cuando pregunten "qué memorias tengo", **cuando algo no aparezca
-    buscando** (antes de decir que no existe) y para que elijan por número si no
-    hay selector visual. El tamaño y el uso están para que puedas recomendar cuál
-    cargar sin llenarle el contexto al usuario.
+    **Si no conoces la cuenta, empieza por el mapa barato:**
 
-    `folder_id` acota a una rama; `profundidad` cuenta desde ahí (lo cortado se
-    anuncia); `con_memorias=False` deja solo las carpetas."""
+        arbol(con_memorias=False, profundidad=3)
+
+    Eso te da solo las carpetas — de qué van los proyectos, cómo están organizados —
+    en una respuesta pequeña. Con ese mapa ya puedes bajar a la rama que importa
+    (`arbol(folder_id="radicapro/clientes/insumedic")`) o filtrar la búsqueda
+    (`buscar(query=..., folder_id="insumedic")`) sin traerte la cuenta entera.
+
+    El árbol completo con memorias es útil cuando pregunten "qué memorias tengo",
+    **cuando algo no aparezca buscando** (enséñaselo antes de decir que no existe),
+    y para que elijan por número si no hay selector visual. Pero en una cuenta
+    grande es mucho contexto: no es el primer reflejo, es el segundo.
+
+    `folder_id` acepta id, nombre o ruta; `profundidad` cuenta desde ahí (lo cortado
+    se anuncia); `con_memorias=False` deja solo las carpetas."""
     return _g(repo.arbol, auth.cuenta_actual(), folder_id, profundidad,
               con_memorias, incluir_archivadas)
 
@@ -72,22 +80,59 @@ def editar_carpeta(folder_id: str, nombre: str | None = None,
 
 @mcp.tool
 def crear_entrada(folder_id: str, titulo: str, resumen: str, contexto: str,
-                  tipo: str, tags: list[str] | None = None) -> dict:
+                  tipo: str, tags: list[str] | None = None,
+                  estado: str | None = None) -> dict:
     """Guarda una memoria en una carpeta. `tipo`: credencial|skill|general|historical.
-    El `resumen` es lo que se indexa/embebe. Rechaza si falta algún campo o el tipo
-    es inválido (pídele el dato al usuario y reintenta)."""
-    return _g(repo.crear_entrada, auth.cuenta_actual(), folder_id, titulo, resumen, contexto, tipo, tags)
+    `folder_id` acepta el id, el nombre o la ruta (`radicapro/clientes/insumedic`).
+
+    El `resumen` es lo que se indexa: escríbelo con las palabras que el usuario
+    usaría al preguntar, no con las del título.
+
+    `estado` (opcional): pendiente|en_curso|hecho|bloqueado. Ponlo si la memoria
+    describe trabajo; déjalo vacío para lo que no tiene estado (una credencial,
+    un glosario). No metas el estado en el título — para eso está este campo.
+
+    **Si el hecho se puede comprobar, incluye en el `contexto` el comando exacto
+    que lo comprueba.** Una memoria técnica sin forma de re-verificarse envejece
+    sin que nadie lo note, y el que venga después no tiene cómo saber si sigue
+    siendo cierta."""
+    return _g(repo.crear_entrada, auth.cuenta_actual(), folder_id, titulo, resumen,
+              contexto, tipo, tags, estado)
 
 
 @mcp.tool
 def editar_entrada(entry_id: str, titulo: str | None = None, resumen: str | None = None,
                    contexto: str | None = None, tipo: str | None = None,
-                   tags: list[str] | None = None, mover_a: str | None = None) -> dict:
+                   tags: list[str] | None = None, mover_a: str | None = None,
+                   estado: str | None = None) -> dict:
     """Edita una entrada. Guarda snapshot de la versión previa en el historial y
-    re-embebe si cambió el `resumen`. `mover_a` = id de la carpeta destino (una
-    entrada siempre vive dentro de una carpeta, así que no admite raíz)."""
+    re-embebe si cambió el `resumen`. `mover_a` = carpeta destino (id, nombre o
+    ruta; una entrada siempre vive dentro de una carpeta, así que no admite raíz).
+
+    **Solo se toca lo que mandes**: omitir `contexto` lo deja intacto, así que
+    cambiar el estado o el título no te obliga a reenviar el cuerpo.
+    **Para agregar información usa `anexar_entrada`**, no esta: reescribir el
+    contexto entero para añadir un párrafo es como se pierden párrafos.
+
+    `estado`: pendiente|en_curso|hecho|bloqueado, o `""` para quitarlo."""
     return _g(repo.editar_entrada, auth.cuenta_actual(), entry_id, titulo, resumen,
-              contexto, tipo, tags, mover_a)
+              contexto, tipo, tags, mover_a, estado)
+
+
+@mcp.tool
+def anexar_entrada(entry_id: str, texto: str, resumen: str | None = None,
+                   estado: str | None = None) -> dict:
+    """Añade `texto` al final del contexto de una memoria, **sin reenviar lo que ya
+    tenía**. Es la forma correcta de sumar un hallazgo, una corrección o un avance.
+
+    Úsala en vez de `editar_entrada(contexto=...)` siempre que estés agregando y no
+    reemplazando: lo anterior queda intacto, no depende de que lo tengas en
+    contexto, y no pisas el trabajo de otro agente.
+
+    Puedes actualizar de paso el `resumen` (es el campo por el que se busca: si lo
+    dejas viejo, la memoria se vuelve difícil de encontrar) y el `estado`.
+    `entry_id` acepta el consecutivo (`"82"`)."""
+    return _g(repo.anexar_entrada, auth.cuenta_actual(), entry_id, texto, resumen, estado)
 
 
 @mcp.tool
@@ -114,13 +159,22 @@ def cargar_carpeta(carpeta: str, con_subcarpetas: bool = True) -> dict:
 
 
 @mcp.tool
-def cargar_contexto(entry_ids: list[str]) -> list[dict]:
+def cargar_contexto(entry_ids: list[str]) -> dict:
     """Devuelve el `contexto` completo de varias entradas y marca su uso.
     Es la tool para cargar memorias al contexto del agente.
 
     Cada id puede ser el uuid o el **consecutivo**: si el usuario dice "carga la 11
-    y la 4", llama directamente con `["11", "4"]` — no busques primero."""
-    return _g(repo.cargar_contexto, auth.cuenta_actual(), entry_ids)
+    y la 4", llama directamente con `["11", "4"]` — no busques primero.
+
+    Al usar lo que traigas, **cita el número** ("según #82, el bug está en
+    Armado.vue"). El usuario no puede distinguir una memoria leída de una
+    suposición tuya que suena bien; el número es lo que se lo hace comprobable."""
+    memorias = _g(repo.cargar_contexto, auth.cuenta_actual(), entry_ids)
+    return {
+        "memorias": memorias,
+        "recuerda": "cita el #numero de la memoria cuando te apoyes en ella; "
+                    "si algo no salió de aquí, dilo.",
+    }
 
 
 # --- Borrar = archivar (reversible) ---
@@ -168,16 +222,30 @@ def ver_historial(entry_id: str) -> dict:
 @mcp.tool
 def buscar(query: str = "", tipo: str | None = None, folder_id: str | None = None,
            tags: list[str] | None = None, limit: int = 15,
-           incluir_archivadas: bool = False) -> list[dict]:
-    """Busca entradas por texto + filtros (tipo, carpeta, tags). Devuelve resúmenes,
-    no el contexto: para eso está `cargar_contexto`.
+           incluir_archivadas: bool = False, estado: str | None = None,
+           alcance: str = "resumen", detallado: bool = False) -> list[dict]:
+    """Busca entradas. Devuelve resúmenes, no el contexto: para eso está
+    `cargar_contexto`. Pásale la frase del usuario tal cual: casa por palabra suelta
+    y por prefijo, ignora tildes y ordena por aciertos. Un `query` que sea solo un
+    número (o `#12`) busca por consecutivo.
 
-    Pásale la frase del usuario tal cual: casa por palabra suelta y por prefijo,
-    ignora tildes y ordena por aciertos. Un `query` que sea solo un número (o `#12`)
-    busca por consecutivo. `folder_id` restringe al subárbol. Lo borrado no sale
-    salvo `incluir_archivadas=True`."""
+    **Filtra en vez de traerlo todo** — es más barato y más preciso que leer el árbol:
+    - `estado`: pendiente|en_curso|hecho|bloqueado. `buscar(estado="pendiente")`
+      responde "¿qué me queda pendiente?" en una llamada.
+    - `tipo`: credencial|skill|general|historical
+    - `folder_id`: acota a una rama; acepta id, nombre o ruta (`insumedic/rips`)
+    - `tags`: transversales (`["facturacion"]`)
+
+    `alcance` decide qué tan hondo mira:
+    - `"resumen"` (default): título, resumen y tags. Es lo que quieres casi siempre.
+    - `"completo"`: además busca **dentro del cuerpo** de las memorias. Úsalo cuando
+      busques algo mencionado de pasada —un comando, un id, un nombre de archivo, un
+      error— que no estaría en ningún resumen. Trae más ruido.
+
+    `detallado=True` agrega uuid, tags, versión y fechas; por defecto la respuesta es
+    compacta para no gastar contexto en metadatos que no vas a usar."""
     return _g(repo.buscar, auth.cuenta_actual(), query, tipo, folder_id, tags, limit,
-              incluir_archivadas)
+              incluir_archivadas, estado, alcance, detallado)
 
 
 @mcp.tool

@@ -116,6 +116,7 @@ def ensure_collections() -> None:
                     "archivada": bol})
     _idx(ENTRADAS, {
         "cuenta": kw, "folder_id": kw, "ancestros": kw, "tipo": kw, "tags": kw,
+        "estado": kw,
         "updated_at": flt, "last_used": flt, "archivada": bol,
         "numero": PayloadSchemaType.INTEGER,
         # `busqueda` = título + resumen + tags, en minúsculas y sin tildes. Es el

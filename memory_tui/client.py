@@ -144,7 +144,13 @@ def listar_recientes(limit=10, apikey=None):
 
 
 def cargar_contexto(entry_ids, apikey=None):
-    return llamar("cargar_contexto", apikey=apikey, entry_ids=entry_ids)
+    """Las memorias completas, siempre como lista.
+
+    El servidor devuelve `{"memorias": [...], "recuerda": ...}` — el recordatorio de
+    citar el número va dirigido al agente, no al TUI. Se acepta también la lista
+    pelada para no romper contra servidores viejos."""
+    r = llamar("cargar_contexto", apikey=apikey, entry_ids=entry_ids)
+    return r.get("memorias", []) if isinstance(r, dict) else r
 
 
 def obtener_entrada(entry_id, marcar_uso=True, apikey=None):

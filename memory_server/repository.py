@@ -22,12 +22,18 @@ def _req(valor, campo: str) -> str:
     return str(valor).strip()
 
 
-def _carpeta_viva(cta: str, folder_id: str, papel: str) -> dict:
+def _carpeta_viva(cta: str, ref: str, papel: str) -> dict:
     """Carpeta que existe, es de la cuenta y no está archivada. Guardar dentro de
-    algo archivado dejaría la memoria invisible desde el minuto uno."""
-    f = store.get(store.CARPETAS, folder_id)
-    if not f or f.get("cuenta") != cta:
-        raise MemoriaError(f"carpeta {papel} {folder_id} no existe en la cuenta '{cta}'")
+    algo archivado dejaría la memoria invisible desde el minuto uno.
+
+    `ref` es id, nombre o ruta: ver `carpeta_por_ref`. Aceptar la ruta en todas
+    partes es lo que evita que haya que imprimir uuids — el agente escribe lo que
+    el árbol ya le enseñó (`radicapro/clientes/insumedic`) y no necesita una
+    llamada previa solo para traducirlo."""
+    try:
+        f = carpeta_por_ref(cta, ref)
+    except MemoriaError as e:
+        raise MemoriaError(f"{papel}: {e}" if papel else str(e))
     if f.get("archivada"):
         raise MemoriaError(f"la carpeta '{f['nombre']}' está archivada; "
                            "restáurala antes de guardar ahí")
@@ -38,6 +44,21 @@ def _valida_tipo(tipo: str) -> str:
     if tipo not in TIPOS:
         raise MemoriaError(f"tipo inválido: {tipo!r}. Debe ser uno de {list(TIPOS)}")
     return tipo
+
+
+# El estado vivía dentro del título por convención ("PENDIENTE: ...", "HECHO: ..."),
+# y eso tenía dos costes: cambiar de estado obligaba a renombrar —justo el texto por
+# el que se busca y se enlaza— y "¿qué me queda pendiente?" no se podía preguntar,
+# había que leer el árbol entero parseando prefijos a ojo. Es un campo aparte y
+# opcional: una credencial o un glosario no tienen estado y no deben fingirlo.
+ESTADOS = ("pendiente", "en_curso", "hecho", "bloqueado")
+
+
+def _valida_estado(estado: str) -> str:
+    e = (estado or "").strip().lower()
+    if e not in ESTADOS:
+        raise MemoriaError(f"estado inválido: {estado!r}. Debe ser uno de {list(ESTADOS)}")
+    return e
 
 
 def _vector(resumen: str) -> list[float]:
@@ -145,17 +166,23 @@ def _palabras(query: str) -> list[str]:
     return [w for w in todas if w not in _VACIAS] or todas
 
 
-def _puntaje(p: dict, palabras: list[str]) -> int:
+def _puntaje(p: dict, palabras: list[str], con_contexto: bool = False) -> int:
     """Cuánto pega el query con esta memoria.
 
     Casar en el título vale más que en el resumen, y este más que en un tag: un
     acierto en el nombre es de lo que va la memoria, y un tag lo comparte media
-    cuenta. Sin este peso, empatan todas y el desempate acaba siendo la fecha."""
-    campos = ((4, p.get("titulo", "")), (2, p.get("resumen", "")),
-              (1, " ".join(p.get("tags") or [])))
+    cuenta. Sin este peso, empatan todas y el desempate acaba siendo la fecha.
+
+    El cuerpo pesa lo mínimo y solo en búsqueda profunda: es larguísimo comparado
+    con los demás campos, así que con cualquier peso serio ganaría siempre la
+    memoria más gorda en vez de la que trata del tema."""
+    campos = [(4, p.get("titulo", "")), (2, p.get("resumen", "")),
+              (1, " ".join(p.get("tags") or []))]
+    if con_contexto:
+        campos.append((1, p.get("contexto", "")))
     total = 0
     for peso, texto in campos:
-        tokens = _PALABRAS.findall(_normaliza(texto))
+        tokens = set(_PALABRAS.findall(_normaliza(texto)))
         total += peso * sum(1 for w in palabras if any(tk.startswith(w) for tk in tokens))
     return total
 
@@ -167,11 +194,33 @@ def _como_numero(query: str) -> int | None:
     return int(q) if q.isdigit() else None
 
 
-def _entrada_out(p: dict, con_contexto: bool = False) -> dict:
+def _entrada_out(p: dict, con_contexto: bool = False, compacto: bool = False) -> dict:
+    """La forma en que sale una entrada.
+
+    `compacto` es el default de `buscar`: una búsqueda devuelve 15 resultados y la
+    ficha completa lleva doce campos de metadatos por cada uno (cuenta, folder_id,
+    version, use_count, created_at, ultima_accion anidada...). Eso es la mayor parte
+    de los tokens de la respuesta y casi nada de lo que el agente necesita para
+    decidir qué cargar, que es número, título, resumen, dónde está y de qué tipo es.
+    Quien necesite el resto pide `detallado=True`."""
+    if compacto:
+        out = {
+            "numero": p.get("numero"), "titulo": p["titulo"], "resumen": p["resumen"],
+            "tipo": p["tipo"], "path": p.get("path", []),
+            "tokens": _tokens(p.get("contexto", "")),
+            "actualizada": store.iso(p.get("updated_at")),
+        }
+        if p.get("estado"):
+            out["estado"] = p["estado"]
+        if con_contexto:
+            out["contexto"] = p.get("contexto", "")
+        return out
+
     out = {
         "id": p["_id"], "numero": p.get("numero"),
         "cuenta": p["cuenta"], "folder_id": p.get("folder_id"),
         "titulo": p["titulo"], "resumen": p["resumen"], "tipo": p["tipo"],
+        "estado": p.get("estado"),
         "tags": p.get("tags", []), "path": p.get("path", []),
         "version": p.get("version", 1), "use_count": p.get("use_count", 0),
         "tokens": _tokens(p.get("contexto", "")),
@@ -240,7 +289,7 @@ def crear_carpeta(cta: str, nombre: str, parent_id: str | None = None,
         p = _carpeta_viva(cta, parent_id, "padre")
         ancestros = p.get("ancestros", []) + [p["_id"]]
         path = p.get("path", []) + [p["nombre"]]
-        parent_ref = parent_id
+        parent_ref = p["_id"]        # el id resuelto: pudo llegar como ruta o nombre
     else:
         ancestros, path, parent_ref = [], [], ""  # "" = raíz
 
@@ -256,9 +305,8 @@ def crear_carpeta(cta: str, nombre: str, parent_id: str | None = None,
 
 def editar_carpeta(cta: str, folder_id: str, nombre: str | None = None,
                    descripcion: str | None = None, mover_a: str | None = None) -> dict:
-    f = store.get(store.CARPETAS, folder_id)
-    if not f or f.get("cuenta") != cta:
-        raise MemoriaError(f"carpeta {folder_id} no existe en la cuenta '{cta}'")
+    f = carpeta_por_ref(cta, folder_id)
+    folder_id = f["_id"]
 
     cambios: dict = {}
     if nombre is not None:
@@ -267,14 +315,14 @@ def editar_carpeta(cta: str, folder_id: str, nombre: str | None = None,
         cambios["descripcion"] = descripcion
 
     if mover_a is not None:
-        if mover_a == folder_id:
-            raise MemoriaError("una carpeta no puede ser su propio padre")
         if mover_a:
             destino = _carpeta_viva(cta, mover_a, "destino")
+            if destino["_id"] == folder_id:
+                raise MemoriaError("una carpeta no puede ser su propio padre")
             if folder_id in destino.get("ancestros", []):
                 raise MemoriaError("no se puede mover una carpeta dentro de su propio subárbol")
-            cambios["parent_id"] = mover_a
-            cambios["ancestros"] = destino.get("ancestros", []) + [mover_a]
+            cambios["parent_id"] = destino["_id"]
+            cambios["ancestros"] = destino.get("ancestros", []) + [destino["_id"]]
             cambios["path"] = destino.get("path", []) + [destino["nombre"]]
         else:
             cambios["parent_id"] = ""
@@ -312,7 +360,8 @@ def _recalcular_subarbol(cta: str, folder_id: str) -> None:
 # --------------------------------------------------------------------------- #
 
 def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
-                  contexto: str, tipo: str, tags: list[str] | None = None) -> dict:
+                  contexto: str, tipo: str, tags: list[str] | None = None,
+                  estado: str | None = None) -> dict:
     folder_id = _req(folder_id, "folder_id")
     titulo = _req(titulo, "titulo")
     resumen = _req(resumen, "resumen")
@@ -320,6 +369,7 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
     tipo = _valida_tipo(_req(tipo, "tipo"))
 
     f = _carpeta_viva(cta, folder_id, "")
+    folder_id = f["_id"]              # pudo llegar como ruta ("radicapro/clientes")
 
     ts = store.now_ts()
     pid = store.nuevo_id()
@@ -330,6 +380,7 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
         "path": f.get("path", []) + [f["nombre"]],
         "titulo": titulo, "resumen": resumen, "contexto": contexto,
         "tipo": tipo, "tags": tags or [],
+        "estado": _valida_estado(estado) if estado else None,
         "busqueda": _texto_busqueda(titulo, resumen, tags),
         "created_at": ts, "updated_at": ts, "use_count": 0,
         "version": 1, "historial": [],
@@ -341,10 +392,19 @@ def crear_entrada(cta: str, folder_id: str, titulo: str, resumen: str,
     return _entrada_out(payload)
 
 
+def _snapshot(e: dict) -> dict:
+    """La versión previa que guarda el historial antes de tocar una entrada."""
+    return {
+        "version": e.get("version", 1), "titulo": e["titulo"], "resumen": e["resumen"],
+        "contexto": e["contexto"], "tipo": e["tipo"], "tags": e.get("tags", []),
+        "estado": e.get("estado"), "ts": e.get("updated_at"),
+    }
+
+
 def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
                    resumen: str | None = None, contexto: str | None = None,
                    tipo: str | None = None, tags: list[str] | None = None,
-                   mover_a: str | None = None) -> dict:
+                   mover_a: str | None = None, estado: str | None = None) -> dict:
     e = entrada(cta, entry_id, con_vector=True)
     entry_id = e["_id"]
 
@@ -359,22 +419,24 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
         cambios["tipo"] = _valida_tipo(tipo)
     if tags is not None:
         cambios["tags"] = tags
+    if estado is not None:
+        # "" limpia el estado: hay memorias que dejan de tener uno (una skill que
+        # nació como pendiente y acabó siendo procedimiento).
+        cambios["estado"] = _valida_estado(estado) if estado.strip() else None
 
     origen = e.get("folder_id")
+    destino_id = None
     if mover_a is not None:
         destino = _carpeta_viva(cta, _req(mover_a, "mover_a"), "destino")
-        cambios["folder_id"] = mover_a
-        cambios["ancestros"] = destino.get("ancestros", []) + [destino["_id"]]
+        destino_id = destino["_id"]
+        cambios["folder_id"] = destino_id
+        cambios["ancestros"] = destino.get("ancestros", []) + [destino_id]
         cambios["path"] = destino.get("path", []) + [destino["nombre"]]
 
     if not cambios:
         raise MemoriaError("no se enviaron campos para editar")
 
-    snapshot = {
-        "version": e.get("version", 1), "titulo": e["titulo"], "resumen": e["resumen"],
-        "contexto": e["contexto"], "tipo": e["tipo"], "tags": e.get("tags", []),
-        "ts": e.get("updated_at"),
-    }
+    snapshot = _snapshot(e)
     vector_actual = e.pop("__vector__", None) or store.ceros()
     nuevo = {k: v for k, v in e.items() if k != "__vector__"}
     nuevo.update(cambios)
@@ -390,9 +452,57 @@ def editar_entrada(cta: str, entry_id: str, titulo: str | None = None,
     vector = _vector(nuevo["resumen"]) if "resumen" in cambios else vector_actual
     store.upsert(store.ENTRADAS, entry_id, nuevo, vector=vector)
     _propagar_accion(cta, nuevo.get("folder_id"), nuevo["ultima_accion"])
-    if mover_a is not None and origen and origen != mover_a:
+    if destino_id and origen and origen != destino_id:
         _propagar_accion(cta, origen, _accion("movida", ts, detalle=nuevo["titulo"]))
     return _entrada_out(nuevo)
+
+
+def anexar_entrada(cta: str, entry_id: str, texto: str, resumen: str | None = None,
+                   estado: str | None = None) -> dict:
+    """Añade texto al final del `contexto` sin reenviar lo que ya había.
+
+    Existe porque `editar_entrada(contexto=...)` obliga a reescribir el cuerpo
+    entero para agregar un párrafo: caro, y sobre todo peligroso cuando quien
+    corrige no es quien escribió — el segundo agente reconstruye "de memoria" lo
+    que no cabía en su contexto y se pierden párrafos sin que nada lo delate.
+    Anexando, lo anterior es intocable.
+
+    OJO con el `resumen`: es el campo que se indexa, así que una memoria que crece
+    a base de anexos se vuelve cada vez más difícil de encontrar por un resumen
+    cada vez más viejo. Por eso se puede actualizar aquí mismo, y si no se hace, la
+    respuesta lo advierte."""
+    texto = _req(texto, "texto")
+    e = entrada(cta, entry_id, con_vector=True)
+    entry_id = e["_id"]
+
+    snapshot = _snapshot(e)
+    vector_actual = e.pop("__vector__", None) or store.ceros()
+    nuevo = {k: v for k, v in e.items() if k != "__vector__"}
+
+    ts = store.now_ts()
+    nuevo["contexto"] = (e.get("contexto") or "").rstrip() + "\n\n" + texto.strip() + "\n"
+    if resumen is not None:
+        nuevo["resumen"] = _req(resumen, "resumen")
+        nuevo["busqueda"] = _texto_busqueda(nuevo["titulo"], nuevo["resumen"],
+                                            nuevo.get("tags"))
+    if estado is not None:
+        nuevo["estado"] = _valida_estado(estado) if estado.strip() else None
+    nuevo["updated_at"] = ts
+    nuevo["version"] = e.get("version", 1) + 1
+    nuevo["historial"] = e.get("historial", []) + [snapshot]
+    nuevo["ultima_accion"] = _accion("anexada", ts)
+
+    vector = _vector(nuevo["resumen"]) if resumen is not None else vector_actual
+    store.upsert(store.ENTRADAS, entry_id, nuevo, vector=vector)
+    _propagar_accion(cta, nuevo.get("folder_id"), nuevo["ultima_accion"])
+
+    out = _entrada_out(nuevo)
+    out["anexado"] = True
+    if resumen is None:
+        out["aviso"] = ("el contexto creció pero el resumen quedó igual; si ya no "
+                        "describe lo que hay dentro, actualízalo — es el campo por "
+                        "el que se busca")
+    return out
 
 
 def entrada(cta: str, ref: str, con_vector: bool = False) -> dict:
@@ -619,20 +729,21 @@ def ver_historial(cta: str, entry_id: str) -> dict:
 def listar(cta: str, folder_id: str | None = None,
            incluir_archivadas: bool = False) -> dict:
     from .instructions import DOCUMENTACION_USO
-    parent = folder_id or ""  # "" = raíz
+    # "" = raíz; si viene algo, puede ser id, nombre o ruta
+    parent = carpeta_por_ref(cta, folder_id)["_id"] if folder_id else ""
     vivas = [] if incluir_archivadas else [store.cond_viva()]
 
     carpetas = store.scroll(store.CARPETAS,
                             must=[store.cond("cuenta", cta),
                                   store.cond("parent_id", parent)] + vivas)
     carpetas.sort(key=lambda p: p.get("nombre", ""))
-    out = {"cuenta": cta, "folder_id": folder_id,
+    out = {"cuenta": cta, "folder_id": parent or None,
            "carpetas": [_carpeta_out(c) for c in carpetas], "entradas": []}
 
-    if folder_id:  # las entradas viven dentro de una carpeta
+    if parent:  # las entradas viven dentro de una carpeta
         entradas = store.scroll(store.ENTRADAS,
                                 must=[store.cond("cuenta", cta),
-                                      store.cond("folder_id", folder_id)] + vivas,
+                                      store.cond("folder_id", parent)] + vivas,
                                 order_key="updated_at")
         out["entradas"] = [_entrada_out(e) for e in entradas]
     else:
@@ -701,9 +812,8 @@ def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
         lista.sort(key=lambda e: e.get("numero") or 0)
 
     if folder_id:
-        raiz = store.get(store.CARPETAS, folder_id)
-        if not raiz or raiz.get("cuenta") != cta:
-            raise MemoriaError(f"carpeta {folder_id} no existe en la cuenta '{cta}'")
+        raiz = carpeta_por_ref(cta, folder_id)
+        folder_id = raiz["_id"]
         cabecera = "/".join(raiz.get("path", []) + [raiz["nombre"]])
     else:
         folder_id, cabecera = "", cta
@@ -741,8 +851,9 @@ def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
                 cuenta_e += 1
                 num = f"#{obj.get('numero')}" if obj.get("numero") else "#?"
                 marca = " [borrada]" if obj.get("archivada") else ""
+                est = f" [{obj['estado']}]" if obj.get("estado") else ""
                 lineas.append(f"{sangria}{rama}{num:<5}{obj['titulo']}"
-                              f"  [{obj.get('tipo', '?')}]{marca}{_uso(obj)}")
+                              f"  [{obj.get('tipo', '?')}]{est}{marca}{_uso(obj)}")
 
     pinta(folder_id, "", 0)
     if len(lineas) == 1:
@@ -752,35 +863,56 @@ def arbol(cta: str, folder_id: str | None = None, profundidad: int = 6,
 
 
 def _must(cta: str, tipo: str | None, folder_id: str | None, tags: list[str] | None,
-          incluir_archivadas: bool = False) -> list:
+          incluir_archivadas: bool = False, estado: str | None = None) -> list:
     must = [store.cond("cuenta", cta)]
     if not incluir_archivadas:
         must.append(store.cond_viva())
+    if estado:
+        must.append(store.cond("estado", _valida_estado(estado)))
     if tipo:
         must.append(store.cond("tipo", _valida_tipo(tipo)))
     if folder_id:
         from qdrant_client.models import Filter
-        must.append(Filter(should=[store.cond("folder_id", folder_id),
-                                    store.cond_any("ancestros", [folder_id])]))
+        fid = carpeta_por_ref(cta, folder_id)["_id"]      # id, nombre o ruta
+        must.append(Filter(should=[store.cond("folder_id", fid),
+                                    store.cond_any("ancestros", [fid])]))
     if tags:
         must.append(store.cond_any("tags", tags))
     return must
 
 
+ALCANCES = ("resumen", "completo")
+
+
 def buscar(cta: str, query: str = "", tipo: str | None = None,
            folder_id: str | None = None, tags: list[str] | None = None,
-           limit: int = 15, incluir_archivadas: bool = False) -> list[dict]:
-    must = _must(cta, tipo, folder_id, tags, incluir_archivadas)
+           limit: int = 15, incluir_archivadas: bool = False,
+           estado: str | None = None, alcance: str = "resumen",
+           detallado: bool = False) -> list[dict]:
+    """Busca entradas. `alcance` decide qué tan hondo se mira.
+
+    - `resumen` (default): título + resumen + tags palabra por palabra, más el
+      cuerpo pero solo si contiene la frase completa. Barato y preciso: es lo que
+      quiere el 90% de las veces, porque lo que se busca a tientas es el nombre.
+    - `completo`: además casa el cuerpo palabra por palabra. Encuentra lo que se
+      mencionó de pasada dentro de una memoria —un comando, un id, un nombre de
+      archivo— que con el alcance normal es invisible. Trae más ruido, por eso no
+      es el default."""
+    if alcance not in ALCANCES:
+        raise MemoriaError(f"alcance inválido: {alcance!r}. Debe ser uno de {list(ALCANCES)}")
+    hondo = alcance == "completo"
+    must = _must(cta, tipo, folder_id, tags, incluir_archivadas, estado)
+    salida = (lambda p: _entrada_out(p, compacto=not detallado))
 
     # Camino vectorial (embeddings activos + hay query).
     if settings.embeddings_enabled and query.strip():
         from . import embeddings
         vec = embeddings.embed(query, kind="query")
-        return [_entrada_out(p) for p in store.search(store.ENTRADAS, vec, must=must, limit=limit)]
+        return [salida(p) for p in store.search(store.ENTRADAS, vec, must=must, limit=limit)]
 
     # Camino texto/metadatos (full-text de payload de Qdrant).
     if not query.strip():
-        return [_entrada_out(p) for p in
+        return [salida(p) for p in
                 store.scroll(store.ENTRADAS, must=must, order_key="updated_at", limit=limit)]
 
     def busca(opciones, tope: int) -> list[dict]:
@@ -797,7 +929,7 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
     if numero is not None:
         res = busca([store.cond("numero", numero)], limit)
         if res or query.strip().startswith("#"):
-            return [_entrada_out(p) for p in res]
+            return [salida(p) for p in res]
 
     # El usuario pide con una frase ("crear una factura con el facturador de la
     # DIAN"), no con la palabra exacta que quedó guardada. Qdrant exige que estén
@@ -809,11 +941,21 @@ def buscar(cta: str, query: str = "", tipo: str | None = None,
     if not palabras:
         return []
     opciones = [store.cond_text("busqueda", w) for w in palabras]
+    # Qdrant exige que estén TODAS las palabras del texto que se le pasa, así que
+    # esta condición sobre el cuerpo es "la frase entera". Efecto secundario útil:
+    # un query de una sola palabra ya entra al cuerpo sin pedir alcance completo;
+    # lo que cambia el alcance es poder casar una palabra suelta de una frase.
     opciones.append(store.cond_text("contexto", query))
+    if hondo:
+        # Con alcance completo el cuerpo también casa palabra por palabra. Se piden
+        # más candidatos porque ahora entran muchos por un acierto suelto y es el
+        # puntaje, no el filtro, quien tiene que separarlos.
+        opciones += [store.cond_text("contexto", w) for w in palabras]
 
-    candidatos = busca(opciones, max(limit * 5, 50))
-    candidatos.sort(key=lambda p: (-_puntaje(p, palabras), -(p.get("updated_at") or 0)))
-    return [_entrada_out(p) for p in candidatos[:limit]]
+    candidatos = busca(opciones, max(limit * (10 if hondo else 5), 50))
+    candidatos.sort(key=lambda p: (-_puntaje(p, palabras, con_contexto=hondo),
+                                   -(p.get("updated_at") or 0)))
+    return [salida(p) for p in candidatos[:limit]]
 
 
 def buscar_relacionadas(cta: str, texto: str | None = None,

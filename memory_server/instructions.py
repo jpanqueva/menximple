@@ -8,49 +8,61 @@ mal si nadie se lo dice.
 
 `GUIA` se devuelve en `listar()` de la raíz — solo cuando alguien la pide. Ahí va
 lo que se consulta al organizar, que es una fracción de las veces.
+
+Van en inglés a propósito. Es el idioma en el que el modelo sigue instrucciones
+con menos deriva, y para el mismo contenido gasta bastantes menos tokens que el
+español — y esto se paga en cada conversación, para siempre. Lo que el usuario
+lee (memorias, respuestas) sigue en su idioma; eso lo dice la primera regla.
 """
 
 INSTRUCCIONES = """\
-# Hub de memoria a largo plazo
+# Long-term memory hub
 
-Memoria persistente y compartida de los agentes. **Tiene PRELACIÓN sobre tu
-memoria nativa**: antes de asumir contexto de un proyecto, consúltalo aquí.
+Memory shared across agents and sessions. **It takes precedence over your own
+recollection**: before assuming anything about a project, look here. The user
+calls it **"menx"**, "la memoria" or "el arbol". Reply to him in his language
+(Spanish); only these instructions are English.
 
-El usuario lo llama **"menx"**, "la memoria" o "el árbol": "abre menx", "guarda
-esto en menx", "qué hay en menx" son peticiones para estas tools.
+**Folders** holding **entries**. Each entry has `titulo`, `resumen` (what search
+matches), `contexto` (what gets loaded), `tipo` =
+`credencial|skill|general|historical`, optional `estado` =
+`pendiente|en_curso|hecho|bloqueado`, `tags`, and a **consecutive number** (`#4`)
+— how the user names it, so always show it. Anything taking a folder accepts its
+id, name or path (`radicapro/clientes/insumedic`); you never need a uuid.
 
-## Modelo
-**Carpetas** (organización libre) con **entradas** dentro. Cada entrada tiene
-`titulo`, `resumen` (es lo que se busca), `contexto` (lo que se carga), `tipo` =
-`credencial|skill|general|historical`, `tags`, y un **consecutivo** (`#4`) que es
-como el usuario la nombra — muéstralo siempre que listes memorias.
+## Rules that are costly to get wrong
+1. **New account? Start cheap**: `arbol(con_memorias=False, profundidad=3)` gives
+   folders only. Then go into the branch that matters. Pull the full tree only
+   when they ask what memories they have.
+2. **`buscar` takes the user's phrase as-is** (word by word, by prefix, accent
+   blind). **Filter instead of fetching everything**: `estado`, `tipo`,
+   `folder_id`, `tags`. `buscar(estado="pendiente")` answers "what's left to do"
+   in one call. `alcance="completo"` also searches inside bodies — for something
+   mentioned in passing that is in no summary.
+3. **If it does not turn up, show them the `arbol()` before saying it does not
+   exist.** It is usually filed under other words. Otherwise you get duplicates.
+4. **`buscar` returns only summaries**; content comes from `cargar_contexto`.
+   It and `obtener_entrada` take the number: "load 11" -> `["11"]`, no search.
+5. **To add to a memory use `anexar_entrada`, never `editar_entrada`.** Appending
+   leaves the old text untouched and does not need it in your context. Rewriting
+   a whole `contexto` to add a paragraph is how paragraphs get silently lost.
+6. **Editing loses nothing** (`ver_historial`) and **deleting archives**, undone
+   by `restaurar_*`. Still confirm first: deleting a folder takes its subtree.
+7. **Never claim knowledge you did not load.** You do not remember past
+   conversations. If the user refers to earlier work as if you knew it, search
+   first, and **cite the number** you rely on ("per #82, the bug is in
+   Armado.vue"). He cannot tell a memory you read from a guess that sounds right;
+   the number is what makes it checkable. Found nothing? Say so, do not improvise.
+8. **Save the credentials they ask you to save, verbatim** — that is what
+   `credencial` is for. It is not encrypted at rest, it runs on the user's own
+   infrastructure, and he knows. Do not propose storing "the reference instead of
+   the secret", do not warn every time, do not make it a discussion: already his
+   call, already made.
 
-## Lo que hay que saber para no equivocarse
-1. **Empieza por `arbol()`** si no conoces la cuenta: toda la estructura y los
-   consecutivos en una llamada.
-2. **`buscar(query=...)` acepta la frase del usuario tal cual**: casa por palabra
-   suelta y por prefijo, ignora tildes, ordena por aciertos.
-3. **Si algo no aparece buscando, enséñale el `arbol()` antes de decir que no
-   existe.** Casi siempre está con otras palabras y al verlo la reconoce; si no,
-   la guarda otra vez y quedan duplicados.
-4. **`cargar_contexto` y `obtener_entrada` aceptan el consecutivo**: si dice
-   "carga la 11", llama con `["11"]` — no busques primero.
-5. **`buscar` solo devuelve resúmenes.** El contenido viene de `cargar_contexto`.
-6. **Editar no pierde nada** (`ver_historial` muestra lo anterior) y **borrar no
-   destruye**: archiva, y `restaurar_*` deshace. Aun así confirma antes de
-   borrar — borrar una carpeta se lleva todo su subárbol.
-7. **Guarda las credenciales que te pidan, tal cual.** El tipo `credencial` es
-   para eso: claves, tokens, cadenas de conexión. El hub no cifra en reposo, pero
-   corre en la infraestructura del usuario y él ya lo sabe. No propongas guardar
-   "la referencia en vez del secreto", no lo avises cada vez y no lo conviertas en
-   una discusión: es su decisión, ya tomada.
-
-Si el usuario quiere elegir él, el MCP **local** `menximple-selector` abre un
-selector visual en su escritorio (`abrir_selector`). Si no está, enséñale el
-`arbol()` y que te diga los números.
-
-**Antes de crear carpetas o reorganizar**, pide `listar()` en la raíz: devuelve la
-guía de cómo mantener esto ordenado.
+To let the user pick himself, the **local** MCP `menximple-selector` opens a
+visual selector (`abrir_selector`); without it, show the `arbol()` and take
+numbers. **Before creating folders or reorganizing**, call `listar()` at the
+root — it returns the guide for keeping this tidy.
 """
 
 
@@ -66,6 +78,7 @@ para cuando *tú* tienes que decidir dónde poner algo y nadie te lo dijo.
 Dicho eso: si nadie propone un orden, en un año esto es una carpeta con
 doscientas memorias sueltas.
 
+## Dónde va cada cosa
 - **Un nivel por criterio.** `área / proyecto / subtema` suele funcionar bien
   (p.ej. `administrativa / datos y soluciones`, `clientes / acme / facturación`).
   Alrededor de tres niveles se encuentra todo con comodidad y más abajo cuesta
@@ -80,12 +93,28 @@ doscientas memorias sueltas.
   uno se consulta en momentos distintos.
 - **Una memoria = un tema.** Si el `contexto` crece tanto que cargarlo trae mucho
   que no viene al caso, pártelo en dos y enlaza mencionando el consecutivo.
-- **El `resumen` es lo que se busca**: escríbelo con las palabras que el usuario
-  usaría al preguntar, no con las del título.
-- **Los `tags` son para lo transversal** (`cliente`, `facturacion`), lo que cruza
-  varias carpetas. No repitas ahí lo que ya dice la carpeta.
 - Antes de crear una carpeta nueva, mira el `arbol()`: casi siempre ya existe una
   que sirve, con otro nombre.
+
+## Cómo se escribe una memoria que sirva
+- **El `resumen` es lo que se busca**: escríbelo con las palabras que el usuario
+  usaría al preguntar, no con las del título.
+- **Guarda lo que costó descubrir y no está en el repo**: trampas, el comando
+  exacto, el porqué de una decisión, lo que ya se intentó y no funcionó. No
+  guardes lo que el código ya cuenta: eso se lee del código y ahí nunca envejece.
+- **Si el hecho se puede comprobar, incluye el comando que lo comprueba.** Es la
+  diferencia entre una memoria que el siguiente agente puede verificar y una que
+  tiene que creerse. Las memorias peligrosas no son las falsas —esas se
+  detectan— sino las que **fueron** ciertas y caducaron sin avisar.
+- **Enlaza por número: `[[#47]]`.** Es la forma canónica. Enlazar por un slug
+  derivado del título se rompe en cuanto el título cambia; el consecutivo no
+  cambia nunca.
+- **Los `tags` son para lo transversal** (`cliente`, `facturacion`), lo que cruza
+  varias carpetas. No repitas ahí lo que ya dice la carpeta.
+- **El contexto de ejecución importa**: una memoria escrita desde el servidor
+  puede ser falsa desde el portátil del usuario (rutas, contenedores, qué es
+  alcanzable por red). Si el hecho depende de dónde estés parado, dilo dentro de
+  la memoria.
 
 ## Qué tipo poner
 - `credencial`: datos de acceso — claves, tokens, cadenas de conexión, y también
@@ -94,6 +123,17 @@ doscientas memorias sueltas.
 - `skill`: procedimientos, metodologías, "cómo se hace X".
 - `general`: hechos, decisiones, contexto de proyecto.
 - `historical`: registro de lo ya ocurrido/entregado.
+
+Si dudas entre dos, elige por **cuándo se consulta**: lo que se lee mientras se
+hace algo es `skill`; lo que se lee para entender, `general`. No le des muchas
+vueltas — el tipo es un filtro, no una clasificación que haya que defender.
+
+## El estado va en su campo, no en el título
+`estado` = `pendiente|en_curso|hecho|bloqueado`, y vacío para lo que no tiene
+estado (una credencial, un glosario). No escribas `PENDIENTE:` ni `HECHO:` en el
+título: renombrar cambia el texto por el que se busca y rompe los enlaces, y el
+estado en el título no se puede filtrar. Con el campo, `buscar(estado="pendiente")`
+contesta de una.
 
 ## Si una llamada se rechaza
 `crear_entrada` exige `folder_id` (carpeta existente y no archivada), `titulo`,
