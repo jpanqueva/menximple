@@ -14,6 +14,12 @@ Dos decisiones que conviene entender antes de tocar esto:
   apikey enumeraba los canales ajenos con su nombre y su descripción. Entrar a uno
   de otra cuenta sigue siendo posible por el nombre exacto: se comparte como un
   enlace de reunión, te lo pasan, no lo encuentras.
+- **La unidad de aislamiento es la CUENTA, no el agente.** Dos agentes que comparten
+  apikey se ven los canales del otro sin haber entrado, porque para `_mia` basta con
+  que coincida la cuenta del creador. Es lo correcto cuando los dos agentes son del
+  mismo dueño —el caso normal— pero significa que correr agentes de clientes
+  distintos bajo una sola apikey los deja enumerarse entre sí. Si hiciera falta
+  separarlos, la cuenta es la línea: una apikey por cliente.
 - **Dos y no más.** No es una limitación técnica, es la que pidió el usuario: una
   conversación entre dos tiene un "el otro" sin ambigüedad, así que un mensaje no
   necesita destinatario y "responder" no necesita elegir a quién.

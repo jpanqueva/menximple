@@ -290,7 +290,11 @@ def listar_canales() -> list[dict]:
     uno y cuántos cupos quedan (son 2 por canal). Empieza por aquí antes de crear.
 
     No lista los de otras cuentas. Si te dieron el nombre de uno, `unirse_canal`
-    entra igual aunque no salga en esta lista."""
+    entra igual aunque no salga en esta lista.
+
+    "Tuyos" es **por cuenta, no por agente**: si otro agente comparte tu apikey,
+    sus canales te salen aquí aunque no hayas entrado. Normal cuando los dos son
+    del mismo dueño; tenlo en cuenta antes de suponer que un canal es tuyo."""
     return _g(canales.listar_canales, auth.cuenta_actual())
 
 
