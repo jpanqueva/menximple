@@ -29,13 +29,53 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import {
   ListToolsRequestSchema, CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-let agente = (process.env.CANAL_AGENTE || '').trim() || null
-
 const log = (m) => process.stderr.write(`[menx-canal] ${m}\n`)
+
+// --- identidad que sobrevive a un /mcp ------------------------------------- //
+//
+// La identidad es de la conversación y vive en este proceso, pero reconectar el
+// MCP respawnea el proceso y la borraba EN SILENCIO: el agente seguía creyéndose
+// identificado, dejaba de escuchar sin enterarse, y el siguiente canal_enviar
+// fallaba tirando un mensaje ya redactado. Lo sufrimos los dos lados el mismo día.
+//
+// Se guarda contra CLAUDE_CODE_SESSION_ID, que es lo que la reconexión conserva y
+// una conversación nueva no: exactamente la vida que debe tener la identidad.
+const SESION = (process.env.CLAUDE_CODE_SESSION_ID || '').trim()
+const ARCHIVO = join(process.env.MENX_CANAL_DIR || join(homedir(), '.menx-canal'),
+                     'identidades.json')
+
+function leerTodas() {
+  try {
+    return JSON.parse(readFileSync(ARCHIVO, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function recordar(nombre) {
+  if (!SESION) return
+  try {
+    mkdirSync(join(ARCHIVO, '..'), { recursive: true })
+    const todas = leerTodas()
+    todas[SESION] = { agente: nombre, ts: Date.now() }
+    // Podar lo viejo: sin esto el archivo crece con cada conversación, para siempre.
+    const mes = Date.now() - 30 * 24 * 3600 * 1000
+    for (const [k, v] of Object.entries(todas)) if ((v?.ts ?? 0) < mes) delete todas[k]
+    writeFileSync(ARCHIVO, JSON.stringify(todas))
+  } catch (e) {
+    log(`no pude recordar la identidad (seguirá funcionando sin persistir): ${e?.message}`)
+  }
+}
+
+let agente = (process.env.CANAL_AGENTE || '').trim() ||
+             (SESION ? (leerTodas()[SESION]?.agente ?? null) : null)
 
 if (!URL_HUB || !APIKEY) {
   log('faltan MEMORY_BASE_URL o MEMORY_APIKEY; el puente no arranca')
@@ -197,6 +237,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       const n = String(a.agente ?? '').trim()
       if (!n) return mal('el nombre no puede ir vacío')
       agente = n
+      recordar(n)
       const mios = await llamar('mis_canales', { agente })
       log(`identidad: "${agente}" (${mios.length} canal/es)`)
       return ok({
@@ -299,6 +340,6 @@ async function escuchar() {
   }
 }
 
-log(agente ? `identidad por defecto: "${agente}"`
+log(agente ? `identidad recuperada: "${agente}" — sigo escuchando`
            : 'sin identidad todavía: el agente debe llamar a canal_identificarse')
 escuchar()
