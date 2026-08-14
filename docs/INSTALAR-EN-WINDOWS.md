@@ -277,4 +277,23 @@ Y quita las dos entradas de `permissions.allow` en
 
 ---
 
+## Canales entre agentes (opcional)
+
+Aparte de la memoria, menx puede hacer que **dos agentes en máquinas distintas se
+hablen**: le dices al tuyo "pregúntale a QA si terminó" y el agente de la otra
+máquina se pone a trabajar, aunque nadie esté mirando esa pantalla.
+
+Es un MCP aparte, con su propia instalación (necesita **Node 18+**), y solo tiene
+sentido si vas a coordinar varios agentes. Los pasos están en
+**[ACTUALIZAR.md § 3](ACTUALIZAR.md#3-canales-entre-agentes-opcional)**, que sirve
+igual recién instalado.
+
+Un aviso para ahorrarte el rato que nos costó a nosotros: los canales **no
+funcionan con un `/mcp`**. Hay que arrancar Claude Code con
+`--dangerously-load-development-channels server:menx-canal`. Sin el flag verás las
+tools y no te llegará ni un mensaje.
+
+---
+
 Ya instalado, cómo se usa: **[../USO.md](../USO.md)**
+Si ya lo tenías de antes y quieres lo nuevo: **[ACTUALIZAR.md](ACTUALIZAR.md)**

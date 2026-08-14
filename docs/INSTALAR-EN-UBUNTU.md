@@ -250,4 +250,28 @@ Y quita las entradas de `permissions.allow` en `~/.claude/settings.json`.
 
 ---
 
+## Canales entre agentes (opcional)
+
+Aparte de la memoria, menx puede hacer que **dos agentes en máquinas distintas se
+hablen**: le dices al tuyo "pregúntale a QA si terminó" y el agente de la otra
+máquina se pone a trabajar, aunque nadie esté mirando esa pantalla.
+
+Es un MCP aparte, con su propia instalación, y solo tiene sentido si vas a
+coordinar varios agentes. Los pasos están en
+**[ACTUALIZAR.md § 3](ACTUALIZAR.md#3-canales-entre-agentes-opcional)**, que sirve
+igual recién instalado.
+
+Dos avisos que en un servidor muerden más que en un portátil:
+
+- Necesita **Node 18+**. En servidores viejos el `node` del PATH suele ser el del
+  sistema (v10 o parecido) aunque haya uno moderno bajo nvm. Comprueba con
+  `node --version` y, si no llega, pon la **ruta absoluta** al binario bueno en la
+  config del MCP: si no, el puente falla al arrancar sin decir por qué.
+- Los canales **no funcionan con un `/mcp`**. Hay que arrancar Claude Code con
+  `--dangerously-load-development-channels server:menx-canal`. Sin el flag verás
+  las tools y no te llegará ni un mensaje.
+
+---
+
 Cómo se usa una vez instalado: **[../USO.md](../USO.md)**
+Si ya lo tenías de antes y quieres lo nuevo: **[ACTUALIZAR.md](ACTUALIZAR.md)**

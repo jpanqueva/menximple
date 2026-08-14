@@ -59,12 +59,17 @@ function leerTodas() {
   }
 }
 
-function recordar(nombre) {
+function recordar(nombre, canales = null) {
   if (!SESION) return
   try {
     mkdirSync(join(ARCHIVO, '..'), { recursive: true })
     const todas = leerTodas()
-    todas[SESION] = { agente: nombre, ts: Date.now() }
+    // Los canales se guardan para que la barra de estado los muestre sin salir a
+    // la red: se pinta muy seguido y una llamada al hub por render sería absurda.
+    todas[SESION] = {
+      agente: nombre, ts: Date.now(),
+      canales: canales ?? todas[SESION]?.canales ?? [],
+    }
     // Podar lo viejo: sin esto el archivo crece con cada conversación, para siempre.
     const mes = Date.now() - 30 * 24 * 3600 * 1000
     for (const [k, v] of Object.entries(todas)) if ((v?.ts ?? 0) < mes) delete todas[k]
@@ -242,6 +247,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       agente = n
       recordar(n)
       const mios = await llamar('mis_canales', { agente })
+      recordar(n, mios.map((x) => x.nombre))
       log(`identidad: "${agente}" (${mios.length} canal/es)`)
       return ok({
         agente,
@@ -262,13 +268,17 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
                              { nombre: a.canal, descripcion: a.descripcion ?? null, agente }))
     }
     if (req.params.name === 'canal_unirse') {
-      return ok(await llamar('unirse_canal', { canal: a.canal, agente }))
+      const r = await llamar('unirse_canal', { canal: a.canal, agente })
+      recordar(agente, (await llamar('mis_canales', { agente })).map((x) => x.nombre))
+      return ok(r)
     }
     if (req.params.name === 'canal_enviar') {
       return ok(await llamar('enviar_mensaje', { canal: a.canal, agente, texto: a.texto }))
     }
     if (req.params.name === 'canal_salir') {
-      return ok(await llamar('salir_canal', { canal: a.canal, agente }))
+      const r = await llamar('salir_canal', { canal: a.canal, agente })
+      recordar(agente, (await llamar('mis_canales', { agente })).map((x) => x.nombre))
+      return ok(r)
     }
     return mal(`tool desconocida: ${req.params.name}`)
   } catch (e) {
