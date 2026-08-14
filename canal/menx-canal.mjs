@@ -265,6 +265,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       recordar(n)
       tomarTurno(n)          // el que se acaba de identificar es el vivo
       empujado.clear()       // instancia nueva: lo no confirmado se reentrega
+      yaAvise = false        // recuperó el turno: si lo vuelve a perder, avisa otra vez
       const mios = await llamar('mis_canales', { agente })
       recordar(n, mios.map((x) => x.nombre))
       log(`identidad: "${agente}" (${mios.length} canal/es)`)
@@ -327,6 +328,31 @@ await mcp.connect(new StdioServerTransport())
 const ESPERA = 100          // < 110 del hub, y muy por debajo del corte de 120 s
 const dormir = (s) => new Promise((r) => setTimeout(r, s * 1000))
 
+// Gritar al quedarse sin buzón. La lección de la tanda de bugs de hoy no fue
+// ninguno de ellos por separado: fue que los cuatro fallaban CALLADOS, y solo se
+// notaban horas después por un mensaje que nunca llegó. Si esta instancia pierde
+// el turno pero su stdio SÍ es el que Claude Code lee, el aviso entra en la
+// conversación; si no lo es, al menos queda en el log. Una sola vez, no por vuelta.
+let yaAvise = false
+
+async function avisarMudo(quien) {
+  if (yaAvise) return
+  yaAvise = true
+  log(`AVISO: otra instancia tomó el buzón de "${quien}"; dejo de recibir mensajes`)
+  try {
+    await mcp.notification({
+      method: 'notifications/claude/channel',
+      params: {
+        content: `Este puente dejó de escuchar: otra instancia tomó el buzón de ` +
+                 `"${quien}". Si esperas mensajes por un canal, no van a llegar aquí. ` +
+                 'Vuelve a llamar a `canal_identificarse` para recuperar el turno, o ' +
+                 'reinicia Claude Code si sigue igual.',
+        meta: { canal: '-', de: 'menx-canal', tipo: 'aviso' },
+      },
+    })
+  } catch { /* si el stdio ya no se lee, el log de arriba es lo que queda */ }
+}
+
 async function confirmar(canal, quien, hasta) {
   if (!hasta) return
   try {
@@ -383,7 +409,7 @@ async function escuchar() {
   for (;;) {
     if (!agente) { await dormir(1); continue }   // aún sin identidad: nada que oír
     const quien = agente
-    if (!miTurno(quien)) { await dormir(2); continue }   // otra instancia es la viva
+    if (!miTurno(quien)) { await avisarMudo(quien); await dormir(2); continue }
     try {
       // `marcar: false` — nada se da por leído hasta que entre en la sesión.
       const r = await llamar('recibir_de_todos',

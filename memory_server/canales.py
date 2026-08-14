@@ -7,10 +7,13 @@ a la sesión de Claude Code como evento de canal.
 
 Dos decisiones que conviene entender antes de tocar esto:
 
-- **Los canales NO están aislados por cuenta.** Todo lo demás en menx lo está: una
-  cuenta nunca ve lo de otra. Aquí es al revés a propósito, porque el caso de uso
-  es justamente que el agente de una cuenta le hable al de otra. El aislamiento lo
-  da la **membresía**: solo los dos que están dentro leen y escriben.
+- **Un canal cruza cuentas, pero el catálogo no.** El sentido es que el agente de
+  una cuenta le hable al de otra, así que la **membresía** manda: solo los dos que
+  están dentro leen y escriben, sin importar de qué cuenta sean. Pero `listar_canales`
+  sí filtra —los que creaste y en los que estás—, porque sin eso cualquiera con una
+  apikey enumeraba los canales ajenos con su nombre y su descripción. Entrar a uno
+  de otra cuenta sigue siendo posible por el nombre exacto: se comparte como un
+  enlace de reunión, te lo pasan, no lo encuentras.
 - **Dos y no más.** No es una limitación técnica, es la que pidió el usuario: una
   conversación entre dos tiene un "el otro" sin ambigüedad, así que un mensaje no
   necesita destinatario y "responder" no necesita elegir a quién.
@@ -59,8 +62,17 @@ def _out(c: dict) -> dict:
     }
 
 
+def _mia(c: dict, cta: str | None) -> bool:
+    """¿Este canal es de mi cuenta — lo creé o estoy dentro?"""
+    if not cta:
+        return True
+    if c.get("cuenta") == cta:
+        return True
+    return any(m.get("cuenta") == cta for m in c.get("miembros", []))
+
+
 def crear_canal(nombre: str, descripcion: str | None = None,
-                agente: str | None = None) -> dict:
+                agente: str | None = None, cta: str | None = None) -> dict:
     """Crea el canal y, si le pasas `agente`, te mete dentro.
 
     Lo segundo no es un atajo: quien crea un canal es porque va a hablar en él, y
@@ -73,20 +85,47 @@ def crear_canal(nombre: str, descripcion: str | None = None,
         raise MemoriaError(f"ya existe un canal '{nombre}'")
     ts = store.now_ts()
     payload = {"_id": store.nuevo_id(), "nombre": nombre, "descripcion": descripcion,
-               "miembros": [], "seq": 0, "created_at": ts, "updated_at": ts}
+               "cuenta": cta, "miembros": [], "seq": 0,
+               "created_at": ts, "updated_at": ts}
     store.upsert(store.CANALES, payload["_id"], payload)
     if agente:
-        return unirse_canal(nombre, agente)
+        return unirse_canal(nombre, agente, cta)
     return _out(payload)
 
 
-def listar_canales() -> list[dict]:
-    cs = store.scroll(store.CANALES, limit=500)
+def listar_canales(cta: str | None = None) -> list[dict]:
+    """Los canales de esta cuenta: los que creó y en los que está.
+
+    NO los lista todos. Los canales cruzan cuentas a propósito —ese es el sentido—
+    pero eso vale para la MEMBRESÍA, no para el catálogo: sin este filtro, cualquiera
+    con una apikey enumeraba los canales de los demás con su nombre y su descripción,
+    que suele explicar justo lo que uno no quiere que se lea de rebote.
+
+    Entrar a un canal de otra cuenta sigue siendo posible: `unirse_canal` acepta el
+    nombre exacto aunque no salga aquí. Se comparte como un enlace de reunión — te lo
+    pasan, no lo encuentras."""
+    cs = [c for c in store.scroll(store.CANALES, limit=500) if _mia(c, cta)]
     cs.sort(key=lambda c: c.get("nombre", ""))
     return [_out(c) for c in cs]
 
 
-def unirse_canal(canal: str, agente: str) -> dict:
+def borrar_canal(canal: str, cta: str | None = None) -> dict:
+    """Borra el canal y sus mensajes. **Esto sí destruye**, a diferencia del resto
+    de menx: un canal es tráfico, no conocimiento, y lo que hace falta de verdad es
+    poder limpiar los de prueba. Solo puede quien lo creó o quien está dentro."""
+    c = _canal(canal)
+    if not _mia(c, cta):
+        raise MemoriaError(f"'{c['nombre']}' no es un canal tuyo; solo puede borrarlo "
+                           "quien lo creó o quien está dentro")
+    msgs = store.scroll(store.MENSAJES, must=[store.cond("canal_id", c["_id"])], limit=5000)
+    for m in msgs:
+        store.delete(store.MENSAJES, m["_id"])
+    store.delete(store.CANALES, c["_id"])
+    return {"borrado": c["nombre"], "mensajes_borrados": len(msgs),
+            "agentes_que_estaban": [m["agente"] for m in c.get("miembros", [])]}
+
+
+def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
     c = _canal(canal)
     agente = _agente(agente)
     miembros = c.get("miembros", [])
@@ -94,7 +133,11 @@ def unirse_canal(canal: str, agente: str) -> dict:
     ya = [m for m in miembros if m["agente"] == agente]
     if ya:
         # Reentrar no es un error: un agente que se reinicia vuelve al mismo sitio
-        # y debe seguir leyendo desde donde iba, no perder su marca.
+        # y debe seguir leyendo desde donde iba, no perder su marca. Se aprovecha
+        # para sellar la cuenta si el registro venía de antes de que existiera.
+        if cta and not ya[0].get("cuenta"):
+            ya[0]["cuenta"] = cta
+            store.upsert(store.CANALES, c["_id"], c)
         return {**_out(c), "reentro": True, "leidos_hasta": ya[0].get("visto", 0)}
     if len(miembros) >= CUPOS:
         otros = ", ".join(m["agente"] for m in miembros)
@@ -111,7 +154,8 @@ def unirse_canal(canal: str, agente: str) -> dict:
     # agente que entra, y volcarle un canal de doscientos mensajes lo paga el
     # usuario. Si se recortó, se dice.
     atras = max(0, c.get("seq", 0) - RETROCESO)
-    miembros.append({"agente": agente, "visto": atras, "desde": store.now_ts()})
+    miembros.append({"agente": agente, "visto": atras, "cuenta": cta,
+                     "desde": store.now_ts()})
     c["miembros"] = miembros
     c["updated_at"] = store.now_ts()
     store.upsert(store.CANALES, c["_id"], c)
@@ -151,8 +195,12 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
 
     seq = c.get("seq", 0) + 1
     ts = store.now_ts()
-    store.upsert(store.MENSAJES, store.nuevo_id(),
-                 {"_id": store.nuevo_id(), "canal_id": c["_id"], "seq": seq,
+    # Un solo id: el del punto y el del payload TIENEN que ser el mismo. Estaban
+    # saliendo de dos llamadas distintas, así que `_id` no apuntaba a nada y borrar
+    # por él no borraba. Pasó desapercibido hasta que hubo algo que borrara.
+    mid = store.nuevo_id()
+    store.upsert(store.MENSAJES, mid,
+                 {"_id": mid, "canal_id": c["_id"], "seq": seq,
                   "de": agente, "texto": texto, "ts": ts, "acuse": bool(acuse)})
     c["seq"] = seq
     c["updated_at"] = ts
@@ -171,10 +219,15 @@ def _pendientes(c: dict, desde: int, agente: str) -> tuple[list[dict], int]:
     entregan (nadie necesita que le lean lo que acaba de escribir) pero sí cuentan
     como vistos. Si solo se avanzara la marca hasta el último mensaje entregado,
     los propios se volverían a examinar en cada vuelta del long-poll."""
-    msgs = store.scroll(store.MENSAJES, must=[store.cond("canal_id", c["_id"])],
+    # El `seq > desde` va en la CONSULTA, no en Python: esto lo llama el long-poll
+    # una vez por segundo y por canal, y filtrando aquí el servidor leía y
+    # serializaba el historial entero cada vuelta —47 ms con 60 mensajes, y crece
+    # con el historial— para tirar casi todo.
+    msgs = store.scroll(store.MENSAJES,
+                        must=[store.cond("canal_id", c["_id"]),
+                              store.cond_mayor("seq", desde)],
                         limit=500)
-    msgs = sorted((m for m in msgs if m.get("seq", 0) > desde),
-                  key=lambda m: m.get("seq", 0))
+    msgs = sorted(msgs, key=lambda m: m.get("seq", 0))
     if not msgs:
         return [], desde
     return [m for m in msgs if m.get("de") != agente], msgs[-1]["seq"]

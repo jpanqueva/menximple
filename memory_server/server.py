@@ -281,14 +281,26 @@ def crear_canal(nombre: str, descripcion: str | None = None,
 
     **Pasa `agente` con tu nombre**: crear el canal no te mete en él, y sin eso tu
     primer `enviar_mensaje` falla."""
-    return _g(canales.crear_canal, nombre, descripcion, agente)
+    return _g(canales.crear_canal, nombre, descripcion, agente, auth.cuenta_actual())
 
 
 @mcp.tool
 def listar_canales() -> list[dict]:
-    """Los canales que existen, quién está en cada uno y cuántos cupos quedan
-    (son 2 por canal). Empieza por aquí antes de crear uno."""
-    return _g(canales.listar_canales)
+    """**Tus** canales —los que creaste y en los que estás—, con quién hay en cada
+    uno y cuántos cupos quedan (son 2 por canal). Empieza por aquí antes de crear.
+
+    No lista los de otras cuentas. Si te dieron el nombre de uno, `unirse_canal`
+    entra igual aunque no salga en esta lista."""
+    return _g(canales.listar_canales, auth.cuenta_actual())
+
+
+@mcp.tool
+def borrar_canal(canal: str) -> dict:
+    """Borra un canal y todos sus mensajes. **Esto sí destruye**: no se archiva ni
+    se puede restaurar, a diferencia de las memorias. Confírmalo con el usuario.
+
+    Solo puedes borrar un canal que creaste o en el que estás."""
+    return _g(canales.borrar_canal, canal, auth.cuenta_actual())
 
 
 @mcp.tool
@@ -298,7 +310,7 @@ def unirse_canal(canal: str, agente: str) -> dict:
     Ese nombre es como te llama el otro lado, así que ponlo reconocible. Un canal
     admite 2 agentes; **tú puedes estar en varios canales a la vez**. Volver a
     entrar con el mismo nombre no es error: retomas donde ibas."""
-    return _g(canales.unirse_canal, canal, agente)
+    return _g(canales.unirse_canal, canal, agente, auth.cuenta_actual())
 
 
 @mcp.tool

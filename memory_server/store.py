@@ -80,6 +80,13 @@ def cond_text(key: str, text: str) -> FieldCondition:
     return FieldCondition(key=key, match=MatchText(text=text))
 
 
+def cond_mayor(key: str, valor) -> FieldCondition:
+    """`key > valor`. Para no traerse lo que ya se descartó: filtrar en Python
+    obliga a que el servidor lea y serialice todo el historial en cada vuelta."""
+    from qdrant_client.models import Range
+    return FieldCondition(key=key, range=Range(gt=valor))
+
+
 def cond_viva() -> Filter:
     """Condición anidada que deja fuera lo archivado (nuestro 'borrado').
 
@@ -192,7 +199,10 @@ def set_payload(coll: str, pid: str, payload: dict) -> None:
 
 
 def delete(coll: str, pid: str) -> None:
-    client().delete(coll, points_selector=[pid])
+    """`wait=True` porque borrar es una acción que el usuario acaba de pedir: sin
+    esperar, Qdrant lo hace en diferido y un `listar` inmediatamente después sigue
+    mostrando lo que se acaba de borrar."""
+    client().delete(coll, points_selector=[pid], wait=True)
 
 
 def scroll(coll: str, must=None, order_key: str | None = None,
