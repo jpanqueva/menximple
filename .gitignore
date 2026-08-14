@@ -7,3 +7,4 @@ qdrant_storage/
 build/
 dist/
 tui/_srv.log
+node_modules/
