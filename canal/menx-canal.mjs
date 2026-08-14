@@ -131,6 +131,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'canal_crear',
+    description:
+      'Crea un canal y te mete dentro con tu identidad, listo para escribir. ' +
+      'Mira antes `listar_canales` por si ya existe uno que sirva.',
+    inputSchema: {
+      type: 'object',
+      properties: { canal: { type: 'string' }, descripcion: { type: 'string' } },
+      required: ['canal'],
+    },
+  },
+  {
     name: 'canal_unirse',
     description:
       'Entra a un canal con tu identidad. Un canal admite 2 agentes; tú puedes ' +
@@ -197,6 +208,10 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
 
     if (!agente) return mal(SIN_IDENTIDAD)
 
+    if (req.params.name === 'canal_crear') {
+      return ok(await llamar('crear_canal',
+                             { nombre: a.canal, descripcion: a.descripcion ?? null, agente }))
+    }
     if (req.params.name === 'canal_unirse') {
       return ok(await llamar('unirse_canal', { canal: a.canal, agente }))
     }

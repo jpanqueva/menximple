@@ -274,10 +274,14 @@ def listar_recientes(limit: int = 10) -> list[dict]:
 # Claude Code como evento de canal.
 
 @mcp.tool
-def crear_canal(nombre: str, descripcion: str | None = None) -> dict:
+def crear_canal(nombre: str, descripcion: str | None = None,
+                agente: str | None = None) -> dict:
     """Crea un canal para hablar con otro agente. El nombre se normaliza a
-    minúsculas y es como se entra desde el otro lado."""
-    return _g(canales.crear_canal, nombre, descripcion)
+    minúsculas y es como se entra desde el otro lado.
+
+    **Pasa `agente` con tu nombre**: crear el canal no te mete en él, y sin eso tu
+    primer `enviar_mensaje` falla."""
+    return _g(canales.crear_canal, nombre, descripcion, agente)
 
 
 @mcp.tool

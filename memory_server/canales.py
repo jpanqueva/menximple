@@ -20,6 +20,7 @@ from .models import MemoriaError
 
 CUPOS = 2
 ESPERA_MAX = 110      # Claude Code corta las tools a los 120 s; ver `recibir`.
+RETROCESO = 20        # cuánto historial ve quien entra; ver `unirse_canal`.
 
 
 def _canal(nombre: str) -> dict:
@@ -58,7 +59,13 @@ def _out(c: dict) -> dict:
     }
 
 
-def crear_canal(nombre: str, descripcion: str | None = None) -> dict:
+def crear_canal(nombre: str, descripcion: str | None = None,
+                agente: str | None = None) -> dict:
+    """Crea el canal y, si le pasas `agente`, te mete dentro.
+
+    Lo segundo no es un atajo: quien crea un canal es porque va a hablar en él, y
+    obligarlo a un `unirse_canal` aparte solo servía para que su primer mensaje
+    fallara con "no estás en el canal". Pasó la primera vez que alguien lo usó."""
     nombre = (nombre or "").strip().lower()
     if not nombre:
         raise MemoriaError("falta el nombre del canal")
@@ -68,6 +75,8 @@ def crear_canal(nombre: str, descripcion: str | None = None) -> dict:
     payload = {"_id": store.nuevo_id(), "nombre": nombre, "descripcion": descripcion,
                "miembros": [], "seq": 0, "created_at": ts, "updated_at": ts}
     store.upsert(store.CANALES, payload["_id"], payload)
+    if agente:
+        return unirse_canal(nombre, agente)
     return _out(payload)
 
 
@@ -92,13 +101,28 @@ def unirse_canal(canal: str, agente: str) -> dict:
         raise MemoriaError(f"el canal '{c['nombre']}' ya tiene sus {CUPOS} agentes "
                            f"({otros}); usa otro canal o que alguno salga")
 
-    # Entra leyendo desde el final: lo dicho antes de llegar no es suyo.
-    miembros.append({"agente": agente, "visto": c.get("seq", 0),
-                     "desde": store.now_ts()})
+    # Quien llega SÍ lee lo que se dijo antes. La primera versión ponía la marca
+    # en el último mensaje ("lo dicho antes de llegar no es suyo") y eso perdía en
+    # silencio justo el mensaje que más importa: el que uno deja esperando a que
+    # el otro entre. Se comprobó en el primer uso real — el que escribió creyó que
+    # el otro lo vería al llegar, y no lo vio.
+    #
+    # Se limita a los últimos RETROCESO porque esto se inyecta en el contexto del
+    # agente que entra, y volcarle un canal de doscientos mensajes lo paga el
+    # usuario. Si se recortó, se dice.
+    atras = max(0, c.get("seq", 0) - RETROCESO)
+    miembros.append({"agente": agente, "visto": atras, "desde": store.now_ts()})
     c["miembros"] = miembros
     c["updated_at"] = store.now_ts()
     store.upsert(store.CANALES, c["_id"], c)
-    return _out(c)
+    out = _out(c)
+    pendientes = c.get("seq", 0) - atras
+    if pendientes:
+        out["te_esperan"] = (f"{pendientes} mensaje(s) escritos antes de que entraras; "
+                             "léelos con `recibir_mensajes`")
+    if atras:
+        out["recortado"] = f"no verás los {atras} primeros (tope de {RETROCESO})"
+    return out
 
 
 def salir_canal(canal: str, agente: str) -> dict:
