@@ -20,6 +20,11 @@ from .config import settings
 CUENTAS = "cuentas"
 CARPETAS = "carpetas"
 ENTRADAS = "entradas"
+# Canales de conversación entre agentes. Viven aparte de las memorias: son tráfico,
+# no conocimiento, y a diferencia de todo lo demás NO están aislados por cuenta —
+# de eso se trata, que dos agentes de máquinas (y cuentas) distintas se hablen.
+CANALES = "canales"
+MENSAJES = "mensajes"
 _DUMMY = [0.0]
 
 _client: QdrantClient | None = None
@@ -108,6 +113,9 @@ def ensure_collections() -> None:
             ENTRADAS,
             vectors_config=VectorParams(size=settings.embedding_dims, distance=Distance.COSINE),
         )
+    for col in (CANALES, MENSAJES):
+        if col not in existentes:
+            c.create_collection(col, vectors_config=VectorParams(size=1, distance=Distance.COSINE))
 
     kw, flt, txt = PayloadSchemaType.KEYWORD, PayloadSchemaType.FLOAT, PayloadSchemaType.TEXT
     bol = PayloadSchemaType.BOOL
@@ -126,6 +134,10 @@ def ensure_collections() -> None:
         # nada, porque lo que se busca a tientas es el nombre, no el cuerpo.
         "busqueda": PREFIJO, "contexto": txt,
     })
+    _idx(CANALES, {"nombre": kw, "cerrado": bol, "updated_at": flt})
+    # `seq` ordena los mensajes de un canal; `entregado_a` dice quién ya lo leyó.
+    _idx(MENSAJES, {"canal_id": kw, "de": kw, "seq": PayloadSchemaType.INTEGER,
+                    "ts": flt})
 
 
 def _mismo_indice(info, deseado) -> bool:

@@ -1,0 +1,232 @@
+"""Canales de conversación entre agentes.
+
+Un canal es una sala de **dos** agentes que pueden estar en máquinas, cuentas y
+países distintos. El hub solo guarda y entrega; quien despierta a un agente que
+está esperando es el puente local (`canal/menx-canal.mjs`), que empuja el mensaje
+a la sesión de Claude Code como evento de canal.
+
+Dos decisiones que conviene entender antes de tocar esto:
+
+- **Los canales NO están aislados por cuenta.** Todo lo demás en menx lo está: una
+  cuenta nunca ve lo de otra. Aquí es al revés a propósito, porque el caso de uso
+  es justamente que el agente de una cuenta le hable al de otra. El aislamiento lo
+  da la **membresía**: solo los dos que están dentro leen y escriben.
+- **Dos y no más.** No es una limitación técnica, es la que pidió el usuario: una
+  conversación entre dos tiene un "el otro" sin ambigüedad, así que un mensaje no
+  necesita destinatario y "responder" no necesita elegir a quién.
+"""
+from . import store
+from .models import MemoriaError
+
+CUPOS = 2
+ESPERA_MAX = 110      # Claude Code corta las tools a los 120 s; ver `recibir`.
+
+
+def _canal(nombre: str) -> dict:
+    nombre = (nombre or "").strip().lower()
+    if not nombre:
+        raise MemoriaError("falta el nombre del canal")
+    hallados = store.scroll(store.CANALES, must=[store.cond("nombre", nombre)], limit=1)
+    if not hallados:
+        raise MemoriaError(f"no existe el canal '{nombre}'; míralos con `listar_canales` "
+                           "o créalo con `crear_canal`")
+    return hallados[0]
+
+
+def _agente(nombre: str) -> str:
+    a = (nombre or "").strip()
+    if not a:
+        raise MemoriaError("falta el nombre del agente (con quién habla el otro lado)")
+    return a
+
+
+def _miembro(c: dict, agente: str) -> dict:
+    for m in c.get("miembros", []):
+        if m["agente"] == agente:
+            return m
+    raise MemoriaError(f"'{agente}' no está en el canal '{c['nombre']}'; "
+                       "entra primero con `unirse_canal`")
+
+
+def _out(c: dict) -> dict:
+    return {
+        "nombre": c["nombre"], "descripcion": c.get("descripcion"),
+        "agentes": [m["agente"] for m in c.get("miembros", [])],
+        "cupos_libres": CUPOS - len(c.get("miembros", [])),
+        "mensajes": c.get("seq", 0),
+        "creado": store.iso(c.get("created_at")),
+    }
+
+
+def crear_canal(nombre: str, descripcion: str | None = None) -> dict:
+    nombre = (nombre or "").strip().lower()
+    if not nombre:
+        raise MemoriaError("falta el nombre del canal")
+    if store.scroll(store.CANALES, must=[store.cond("nombre", nombre)], limit=1):
+        raise MemoriaError(f"ya existe un canal '{nombre}'")
+    ts = store.now_ts()
+    payload = {"_id": store.nuevo_id(), "nombre": nombre, "descripcion": descripcion,
+               "miembros": [], "seq": 0, "created_at": ts, "updated_at": ts}
+    store.upsert(store.CANALES, payload["_id"], payload)
+    return _out(payload)
+
+
+def listar_canales() -> list[dict]:
+    cs = store.scroll(store.CANALES, limit=500)
+    cs.sort(key=lambda c: c.get("nombre", ""))
+    return [_out(c) for c in cs]
+
+
+def unirse_canal(canal: str, agente: str) -> dict:
+    c = _canal(canal)
+    agente = _agente(agente)
+    miembros = c.get("miembros", [])
+
+    ya = [m for m in miembros if m["agente"] == agente]
+    if ya:
+        # Reentrar no es un error: un agente que se reinicia vuelve al mismo sitio
+        # y debe seguir leyendo desde donde iba, no perder su marca.
+        return {**_out(c), "reentro": True, "leidos_hasta": ya[0].get("visto", 0)}
+    if len(miembros) >= CUPOS:
+        otros = ", ".join(m["agente"] for m in miembros)
+        raise MemoriaError(f"el canal '{c['nombre']}' ya tiene sus {CUPOS} agentes "
+                           f"({otros}); usa otro canal o que alguno salga")
+
+    # Entra leyendo desde el final: lo dicho antes de llegar no es suyo.
+    miembros.append({"agente": agente, "visto": c.get("seq", 0),
+                     "desde": store.now_ts()})
+    c["miembros"] = miembros
+    c["updated_at"] = store.now_ts()
+    store.upsert(store.CANALES, c["_id"], c)
+    return _out(c)
+
+
+def salir_canal(canal: str, agente: str) -> dict:
+    c = _canal(canal)
+    agente = _agente(agente)
+    _miembro(c, agente)
+    c["miembros"] = [m for m in c.get("miembros", []) if m["agente"] != agente]
+    c["updated_at"] = store.now_ts()
+    store.upsert(store.CANALES, c["_id"], c)
+    return _out(c)
+
+
+def enviar_mensaje(canal: str, agente: str, texto: str) -> dict:
+    texto = (texto or "").strip()
+    if not texto:
+        raise MemoriaError("el mensaje está vacío")
+    c = _canal(canal)
+    agente = _agente(agente)
+    _miembro(c, agente)
+
+    seq = c.get("seq", 0) + 1
+    ts = store.now_ts()
+    store.upsert(store.MENSAJES, store.nuevo_id(),
+                 {"_id": store.nuevo_id(), "canal_id": c["_id"], "seq": seq,
+                  "de": agente, "texto": texto, "ts": ts})
+    c["seq"] = seq
+    c["updated_at"] = ts
+    store.upsert(store.CANALES, c["_id"], c)
+
+    otros = [m["agente"] for m in c.get("miembros", []) if m["agente"] != agente]
+    return {"canal": c["nombre"], "seq": seq, "para": otros or None,
+            "aviso": None if otros else
+            "no hay nadie más en el canal todavía; el mensaje queda esperando"}
+
+
+def _pendientes(c: dict, desde: int, agente: str) -> tuple[list[dict], int]:
+    """Lo que le falta leer a `agente`, y hasta qué `seq` se puede dar por visto.
+
+    Devuelve los dos valores porque no coinciden: los mensajes **propios** no se
+    entregan (nadie necesita que le lean lo que acaba de escribir) pero sí cuentan
+    como vistos. Si solo se avanzara la marca hasta el último mensaje entregado,
+    los propios se volverían a examinar en cada vuelta del long-poll."""
+    msgs = store.scroll(store.MENSAJES, must=[store.cond("canal_id", c["_id"])],
+                        limit=500)
+    msgs = sorted((m for m in msgs if m.get("seq", 0) > desde),
+                  key=lambda m: m.get("seq", 0))
+    if not msgs:
+        return [], desde
+    return [m for m in msgs if m.get("de") != agente], msgs[-1]["seq"]
+
+
+def _canales_de(agente: str) -> list[dict]:
+    return [c for c in store.scroll(store.CANALES, limit=500)
+            if any(m["agente"] == agente for m in c.get("miembros", []))]
+
+
+def mis_canales(agente: str) -> list[dict]:
+    """En qué canales está este agente. Puede estar en varios a la vez: el límite
+    de dos es por canal, no por agente."""
+    return [_out(c) for c in _canales_de(_agente(agente))]
+
+
+def recibir_todo(agente: str, espera: int = 0) -> dict:
+    """Lo pendiente en **todos** los canales del agente, en una sola espera.
+
+    Es lo que usa el puente local: un agente suele estar en varios canales y abrir
+    una espera por cada uno sería una llamada colgada por canal. Devuelve en cuanto
+    entra algo en cualquiera de ellos."""
+    import time
+
+    agente = _agente(agente)
+    espera = max(0, min(int(espera or 0), ESPERA_MAX))
+    limite = time.time() + espera
+
+    while True:
+        salida = []
+        for c in _canales_de(agente):
+            visto = next(m.get("visto", 0) for m in c["miembros"] if m["agente"] == agente)
+            msgs, hasta = _pendientes(c, visto, agente)
+            if hasta > visto:
+                for x in c["miembros"]:
+                    if x["agente"] == agente:
+                        x["visto"] = hasta
+                store.upsert(store.CANALES, c["_id"], c)
+            if msgs:
+                salida.append({
+                    "canal": c["nombre"],
+                    "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
+                                  "cuando": store.iso(x["ts"])} for x in msgs],
+                })
+        if salida or time.time() >= limite:
+            return {"agente": agente, "canales": salida}
+        time.sleep(1.0)
+
+
+def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> dict:
+    """Los mensajes que el agente todavía no ha visto.
+
+    `espera` en segundos deja la llamada colgada hasta que llegue algo (long-poll):
+    es lo que hace que "pregúntale a QA y espera" se sienta una conversación y no
+    un sondeo. Se topa en ESPERA_MAX porque Claude Code corta las tools a los 120 s;
+    si se agota devuelve vacío y quien llama vuelve a preguntar."""
+    import time
+
+    c = _canal(canal)
+    agente = _agente(agente)
+    m = _miembro(c, agente)
+    desde = m.get("visto", 0)
+
+    espera = max(0, min(int(espera or 0), ESPERA_MAX))
+    limite = time.time() + espera
+    while True:
+        msgs, hasta = _pendientes(c, desde, agente)
+        if msgs or time.time() >= limite:
+            break
+        time.sleep(1.0)
+        c = _canal(canal)          # releer: el otro pudo escribir mientras dormíamos
+
+    if marcar and hasta > desde:
+        for x in c.get("miembros", []):
+            if x["agente"] == agente:
+                x["visto"] = hasta
+        store.upsert(store.CANALES, c["_id"], c)
+
+    return {
+        "canal": c["nombre"],
+        "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
+                      "cuando": store.iso(x["ts"])} for x in msgs],
+        "esperando": [a["agente"] for a in c.get("miembros", [])
+                      if a["agente"] != agente] or None,
+    }

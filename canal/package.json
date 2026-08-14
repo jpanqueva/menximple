@@ -1,0 +1,10 @@
+{
+  "name": "menx-canal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Puente que empuja los mensajes de los canales de menx a la sesion de Claude Code",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from . import auth
+from . import canales
 from . import repository as repo
 from . import store
 from .config import settings
@@ -260,6 +261,80 @@ def buscar_relacionadas(texto: str | None = None, entry_id: str | None = None,
 def listar_recientes(limit: int = 10) -> list[dict]:
     """Últimas memorias usadas de la cuenta (para ofrecer contextos probables en modo chat)."""
     return _g(repo.listar_recientes, auth.cuenta_actual(), limit)
+
+
+# --- Canales entre agentes ---
+#
+# Un canal es una sala de DOS agentes, que pueden estar en máquinas y cuentas
+# distintas. A diferencia de las memorias, los canales NO están aislados por
+# cuenta: de eso se trata. El aislamiento lo da la membresía.
+#
+# El hub guarda y entrega. Quien DESPIERTA a un agente que está esperando es el
+# puente local (`canal/menx-canal.mjs`), que empuja lo que llega a la sesión de
+# Claude Code como evento de canal.
+
+@mcp.tool
+def crear_canal(nombre: str, descripcion: str | None = None) -> dict:
+    """Crea un canal para hablar con otro agente. El nombre se normaliza a
+    minúsculas y es como se entra desde el otro lado."""
+    return _g(canales.crear_canal, nombre, descripcion)
+
+
+@mcp.tool
+def listar_canales() -> list[dict]:
+    """Los canales que existen, quién está en cada uno y cuántos cupos quedan
+    (son 2 por canal). Empieza por aquí antes de crear uno."""
+    return _g(canales.listar_canales)
+
+
+@mcp.tool
+def unirse_canal(canal: str, agente: str) -> dict:
+    """Entra a un canal con un nombre de agente (`qa-ubuntu`, `jhon-windows`).
+
+    Ese nombre es como te llama el otro lado, así que ponlo reconocible. Un canal
+    admite 2 agentes; **tú puedes estar en varios canales a la vez**. Volver a
+    entrar con el mismo nombre no es error: retomas donde ibas."""
+    return _g(canales.unirse_canal, canal, agente)
+
+
+@mcp.tool
+def salir_canal(canal: str, agente: str) -> dict:
+    """Deja el canal y libera el cupo."""
+    return _g(canales.salir_canal, canal, agente)
+
+
+@mcp.tool
+def enviar_mensaje(canal: str, agente: str, texto: str) -> dict:
+    """Escribe en el canal. `agente` eres tú, no el destinatario: como son dos, el
+    mensaje va al otro sin que haya que decir a quién.
+
+    Si el otro tiene el puente local corriendo, esto **le interrumpe la espera** y
+    lo pone a trabajar. Escribe el mensaje completo: el otro no ve tu conversación
+    ni tus archivos, solo este texto."""
+    return _g(canales.enviar_mensaje, canal, agente, texto)
+
+
+@mcp.tool
+def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
+    """Lo que te hayan escrito y no hayas leído. `espera` en segundos deja la
+    llamada colgada hasta que llegue algo (máximo 110; Claude Code corta a los 120).
+
+    Úsala para esperar la respuesta después de preguntar algo. Si vuelve vacía, el
+    otro no ha contestado: puedes reintentar o seguir con lo tuyo."""
+    return _g(canales.recibir, canal, agente, espera)
+
+
+@mcp.tool
+def mis_canales(agente: str) -> list[dict]:
+    """En qué canales estás con ese nombre de agente."""
+    return _g(canales.mis_canales, agente)
+
+
+@mcp.tool
+def recibir_de_todos(agente: str, espera: int = 0) -> dict:
+    """Lo pendiente en **todos** tus canales de una vez. Es lo que usa el puente
+    local; a mano sirve para "¿me escribió alguien?" sin ir canal por canal."""
+    return _g(canales.recibir_todo, agente, espera)
 
 
 # --- Administración de cuentas (protegida por X-Admin-Token) ---
