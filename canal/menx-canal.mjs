@@ -67,7 +67,7 @@ function recordar(nombre, canales = null) {
     // Los canales se guardan para que la barra de estado los muestre sin salir a
     // la red: se pinta muy seguido y una llamada al hub por render sería absurda.
     todas[SESION] = {
-      agente: nombre, ts: Date.now(),
+      agente: nombre, ts: Date.now(), cwd: process.cwd(),
       canales: canales ?? todas[SESION]?.canales ?? [],
     }
     // Podar lo viejo: sin esto el archivo crece con cada conversación, para siempre.
@@ -81,6 +81,23 @@ function recordar(nombre, canales = null) {
 
 let agente = (process.env.CANAL_AGENTE || '').trim() ||
              (SESION ? (leerTodas()[SESION]?.agente ?? null) : null)
+
+/** La identidad usada hace poco en esta misma carpeta, si la hay.
+ *
+ * `/resume` y reiniciar Claude Code abren una sesión NUEVA, con otro id, así que
+ * la identidad guardada contra el id anterior deja de encontrarse aunque para el
+ * usuario sea la misma conversación de siempre. En vez de adivinar —dos agentes
+ * pueden compartir carpeta— se ofrece como sugerencia y decide el agente. */
+function sugerencia() {
+  if (agente) return null
+  const aqui = process.cwd()
+  const cs = Object.values(leerTodas())
+    .filter((v) => v?.cwd === aqui && v?.agente)
+    .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+  if (!cs.length) return null
+  const horas = Math.round((Date.now() - (cs[0].ts ?? 0)) / 3600000)
+  return { agente: cs[0].agente, hace: horas < 1 ? 'hace menos de una hora' : `hace ~${horas} h` }
+}
 
 if (!URL_HUB || !APIKEY) {
   log('faltan MEMORY_BASE_URL o MEMORY_APIKEY; el puente no arranca')
@@ -257,11 +274,21 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
 
     if (req.params.name === 'canal_estado') {
-      if (!agente) return ok({ agente: null, aviso: SIN_IDENTIDAD })
+      if (!agente) {
+        const s = sugerencia()
+        return ok({
+          agente: null, aviso: SIN_IDENTIDAD,
+          ...(s ? { sugerencia: `en esta carpeta se usó "${s.agente}" ${s.hace}; ` +
+                                'si esta conversación es la misma, identifícate así' } : {}),
+        })
+      }
       return ok({ agente, canales: await llamar('mis_canales', { agente }) })
     }
 
-    if (!agente) return mal(SIN_IDENTIDAD)
+    if (!agente) {
+      const s = sugerencia()
+      return mal(SIN_IDENTIDAD + (s ? ` (en esta carpeta se usó "${s.agente}" ${s.hace})` : ''))
+    }
 
     if (req.params.name === 'canal_crear') {
       return ok(await llamar('crear_canal',
