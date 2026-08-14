@@ -65,14 +65,23 @@ async function conectar() {
 
 async function llamar(tool, args) {
   if (!hub) hub = await conectar()
+  let d
   try {
     const r = await hub.callTool({ name: tool, arguments: args })
     const txt = r?.content?.find?.((x) => x.type === 'text')?.text
-    return txt ? JSON.parse(txt) : r?.structuredContent ?? null
+    d = txt ? JSON.parse(txt) : (r?.structuredContent ?? null)
   } catch (e) {
     hub = null                    // sesión caída: se reconecta en la próxima vuelta
     throw e
   }
+  // Una tool que devuelve lista llega envuelta como {"result": [...]} — es cómo
+  // FastMCP serializa lo que no es un objeto. Se desenvuelve aquí para que quien
+  // llame reciba lo que la tool declara y no tenga que saber esto.
+  if (d && typeof d === 'object' && !Array.isArray(d) &&
+      Object.keys(d).length === 1 && Array.isArray(d.result)) {
+    return d.result
+  }
+  return d
 }
 
 // --- bucle de escucha ------------------------------------------------------ //
