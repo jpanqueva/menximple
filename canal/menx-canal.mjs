@@ -298,6 +298,7 @@ async function escuchar() {
       fallos = 0
       if (quien !== agente) continue             // se reidentificó mientras esperaba
       for (const c of r?.canales ?? []) {
+        let porAcusar = 0
         for (const m of c.mensajes ?? []) {
           await mcp.notification({
             method: 'notifications/claude/channel',
@@ -312,23 +313,29 @@ async function escuchar() {
             },
           })
           log(`<- ${c.canal} · ${m.de}: ${m.texto.slice(0, 60)}`)
+          if (!m.acuse) porAcusar++
+        }
 
-          // Acuse automático. Un encargo puede tardar mucho, y sin esto quien
-          // preguntó no distingue "no lo ha leído" de "lo está trabajando". Lo
-          // manda el puente y no el modelo a propósito: sale en el momento de la
-          // entrega, sin depender de que el agente se acuerde ni de cuánto tarde
-          // en arrancar. Un acuse NO se acusa, o serían dos agentes saludándose
-          // para siempre.
-          if (!m.acuse) {
-            try {
-              await llamar('enviar_mensaje', {
-                canal: c.canal, agente: quien, acuse: true,
-                texto: `[entregado a ${quien}] recibido, lo estoy procesando; ` +
-                       'te escribo cuando tenga algo.',
-              })
-            } catch (e) {
-              log(`no pude acusar recibo en ${c.canal}: ${e?.message ?? e}`)
-            }
+        // Acuse automático, UNO POR LOTE. Un encargo puede tardar mucho, y sin
+        // esto quien preguntó no distingue "no lo ha leído" de "lo está
+        // trabajando". Lo manda el puente y no el modelo a propósito: sale al
+        // entregar, sin depender de que el agente se acuerde ni de cuánto tarde
+        // en arrancar su turno.
+        //
+        // Por lote y no por mensaje porque Claude Code entrega junto todo lo que
+        // llegó mientras estaba ocupado: acusar cada uno devolvía dos acuses
+        // idénticos por una sola entrega. Y un acuse NO se acusa, o serían dos
+        // agentes saludándose para siempre.
+        if (porAcusar) {
+          const cuantos = porAcusar === 1 ? 'recibido' : `recibidos ${porAcusar} mensajes`
+          try {
+            await llamar('enviar_mensaje', {
+              canal: c.canal, agente: quien, acuse: true,
+              texto: `[entregado a ${quien}] ${cuantos}, lo estoy procesando; ` +
+                     'te escribo cuando tenga algo.',
+            })
+          } catch (e) {
+            log(`no pude acusar recibo en ${c.canal}: ${e?.message ?? e}`)
           }
         }
       }
