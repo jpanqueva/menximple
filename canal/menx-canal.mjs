@@ -390,6 +390,15 @@ async function escuchar() {
   }
 }
 
-log(agente ? `identidad recuperada: "${agente}" — sigo escuchando`
-           : 'sin identidad todavía: el agente debe llamar a canal_identificarse')
+if (agente) {
+  log(`identidad recuperada: "${agente}" — sigo escuchando`)
+  // Refrescar los canales al arrancar. Sin esto, tras un /mcp la barra de estado
+  // seguiría mostrando la lista de la última vez que alguien se identificó o entró
+  // a un canal — o ninguna, si la identidad se guardó antes de que se guardaran.
+  llamar('mis_canales', { agente })
+    .then((cs) => recordar(agente, cs.map((x) => x.nombre)))
+    .catch((e) => log(`no pude refrescar la lista de canales: ${e?.message ?? e}`))
+} else {
+  log('sin identidad todavía: el agente debe llamar a canal_identificarse')
+}
 escuchar()

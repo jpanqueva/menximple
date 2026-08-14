@@ -41,9 +41,22 @@ process.stdin.on('end', () => {
   try {
     const d = JSON.parse(readFileSync(ARCHIVO, 'utf8'))[sesion]
     if (d?.agente) {
-      const n = d.canales?.length ?? 0
-      menx = `menx: ${d.agente}` +
-             (n ? ` · ${n} canal${n > 1 ? 'es' : ''}: ${d.canales.join(', ')}` : ' · sin canales')
+      menx = `menx: ${d.agente}`
+      // Distinguir "sé que no tiene canales" de "no lo sé todavía": un registro
+      // viejo no trae la lista, y decir "sin canales" ahí sería mentir.
+      if (Array.isArray(d.canales)) {
+        const cs = d.canales
+        if (!cs.length) {
+          menx += ' · sin canales'
+        } else {
+          // Con muchos canales la barra se come la línea: se nombran los 3
+          // primeros y el resto se cuenta.
+          const muestra = cs.slice(0, 3).join(', ')
+          const resto = cs.length - 3
+          menx += ` · ${cs.length} canal${cs.length > 1 ? 'es' : ''}: ` +
+                  muestra + (resto > 0 ? ` +${resto}` : '')
+        }
+      }
     }
   } catch { /* sin archivo todavía: queda "sin identidad", que es la verdad */ }
 
