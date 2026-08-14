@@ -9,6 +9,10 @@ Multi-cuenta con **apikey por cuenta** (memorias privadas y aisladas).
 > **[Windows](docs/INSTALAR-EN-WINDOWS.md)** · **[Ubuntu](docs/INSTALAR-EN-UBUNTU.md)**.
 > Luego **[USO.md](USO.md)** para saber cómo se usa.
 >
+> **¿Ya lo tenías instalado?** **[docs/ACTUALIZAR.md](docs/ACTUALIZAR.md)** — sirve
+> para Windows y Ubuntu, y trae lo que falta si tu instalación es anterior a los
+> canales.
+>
 > Un agente al que le digan *"lee este repo e instala"* tiene ahí todo lo que
 > necesita salvo la URL y la apikey, que **no están en el repo a propósito**.
 >

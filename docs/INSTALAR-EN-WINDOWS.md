@@ -4,10 +4,13 @@ Esta guía es para **usar** el sistema, no para montarlo. Al terminar, Claude Co
 tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que se abra.
 
 > **Si eres un agente de IA y te dijeron "lee esto e instálalo":** sigue los pasos
-> 1 a 5 **en orden y comprobando la salida de cada uno** — si `where.exe` no
+> 1 a 6 **en orden y comprobando la salida de cada uno** — si `where.exe` no
 > imprime nada o `claude mcp list` no dice *Connected*, para y arregla eso antes
 > de seguir; encadenar comandos sobre un paso fallido deja al usuario con una
 > instalación a medias que parece buena.
+>
+> **El paso 6 (canales) va también.** Son dos mitades: memoria y hablar con otros
+> agentes. Sin él, cuando alguien te escriba no te vas a enterar.
 >
 > Lo único que no está aquí — y que **no puede estar**, porque el repositorio es
 > público — son la **URL base** y la **apikey**. Si el usuario no te las dio,
@@ -277,21 +280,135 @@ Y quita las dos entradas de `permissions.allow` en
 
 ---
 
-## Canales entre agentes (opcional)
+## 6. Canales entre agentes
 
-Aparte de la memoria, menx puede hacer que **dos agentes en máquinas distintas se
-hablen**: le dices al tuyo "pregúntale a QA si terminó" y el agente de la otra
-máquina se pone a trabajar, aunque nadie esté mirando esa pantalla.
+Hasta aquí tienes **memoria**. Esta es la otra mitad: que **dos agentes en máquinas
+distintas se hablen**. Le dices al tuyo "pregúntale a QA si terminó" y el agente de
+la otra máquina arranca a trabajar, aunque nadie esté mirando esa pantalla.
 
-Es un MCP aparte, con su propia instalación (necesita **Node 18+**), y solo tiene
-sentido si vas a coordinar varios agentes. Los pasos están en
-**[ACTUALIZAR.md § 3](ACTUALIZAR.md#3-canales-entre-agentes-opcional)**, que sirve
-igual recién instalado.
+Instálalo aunque hoy trabajes solo. Sin esto puedes escribir en un canal, pero **no
+recibir**: cuando alguien te busque no te vas a enterar, y el que escribió creerá
+que te llegó.
 
-Un aviso para ahorrarte el rato que nos costó a nosotros: los canales **no
-funcionan con un `/mcp`**. Hay que arrancar Claude Code con
-`--dangerously-load-development-channels server:menx-canal`. Sin el flag verás las
-tools y no te llegará ni un mensaje.
+Necesita **Node 18+**:
+
+```powershell
+node --version
+```
+
+### 6.1 Traer el puente
+
+El puente es un MCP local que corre en tu PC. El hub no puede empujar nada hacia
+una sesión — es petición/respuesta —, así que esta pieza es la que despierta al
+agente cuando le escriben.
+
+```powershell
+git clone https://github.com/jpanqueva/menximple.git
+cd menximple\canal
+npm install
+```
+
+Anota la ruta completa de `menx-canal.mjs`. Con el clon en `C:\dev` sería
+`C:\dev\menximple\canal\menx-canal.mjs`.
+
+### 6.2 Registrarlo
+
+**La misma URL y la misma apikey del paso 3.** Reemplaza `<URL>`, `<APIKEY>` y la
+ruta, sin los símbolos `<` y `>`:
+
+```powershell
+claude mcp add --scope user menx-canal -e "MEMORY_BASE_URL=<URL>" -e "MEMORY_APIKEY=<APIKEY>" "--" node "C:\dev\menximple\canal\menx-canal.mjs"
+```
+
+> Aquí **no** se pone ningún nombre de agente. La identidad se pide por
+> conversación (6.4): en una misma máquina puedes tener varios agentes abiertos y
+> cada uno es uno distinto. Ponerla aquí haría que todos se llamaran igual y se
+> robaran los mensajes.
+
+### 6.3 Arrancar con el flag
+
+**Los canales no se activan con `/mcp`.** Hay que arrancar Claude Code así:
+
+```powershell
+claude --dangerously-load-development-channels server:menx-canal
+```
+
+Sale una pantalla de advertencia → elige **"I am using this for local
+development"**. Es "dangerously" solo porque los canales propios no están en la
+lista aprobada de Anthropic mientras la función es research preview; el código es
+el tuyo.
+
+> **El fallo más confuso de todo esto:** si arrancas sin el flag, el MCP se
+> registra igual y **verás** las tools `canal_*`, pero no te llegará ningún
+> mensaje. Parece instalado y está mudo. Si no recibes nada, empieza por aquí.
+
+### 6.4 Identificarte
+
+> Identifícate en los canales de menx como `jhon-windows`.
+
+Elige algo reconocible para el otro lado, no un genérico como "agente". La
+identidad sobrevive a los `/mcp`; con `/resume` o al reiniciar, Claude Code abre
+una sesión nueva y te la vuelve a pedir — pero te sugiere la que usaste antes en
+esa misma carpeta.
+
+### 6.5 Hablar
+
+```
+¿Qué canales hay?                        →  listar_canales
+Crea un canal "qa" y entra.              →  canal_crear
+Entra al canal "qa".                     →  canal_unirse
+Dile a qa-arauca que corra las pruebas.  →  canal_enviar
+```
+
+Un canal admite **2 agentes**; tú puedes estar en varios a la vez.
+
+Lo que pasa solo, sin pedirlo:
+
+- Cuando te escriben, el mensaje **entra en tu sesión** y, si estabas ocioso,
+  arranca un turno con él.
+- Tu puente **acusa recibo automáticamente**: el otro sabe que llegó y que lo estás
+  trabajando.
+- Nada se da por leído hasta que **entra de verdad** en la sesión. Si el puente se
+  cae antes, se vuelve a entregar.
+
+Con el puente corriendo **no esperes mensajes a mano** con `recibir_mensajes`:
+llegan empujados, y esa tool casi siempre devolverá vacío porque el puente ya
+consumió el buzón.
+
+### 6.6 Barra de estado
+
+La identidad del canal es invisible, y un agente que se cree identificado y no lo
+está deja de recibir sin que nada lo diga. En la barra se ve de un vistazo:
+
+```
+mi-proyecto  |  Opus 5  |  menx: jhon-windows · 1 canal: qa
+```
+
+En `%USERPROFILE%\.claude\settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "node C:/dev/menximple/canal/statusline-menx.mjs",
+  "padding": 1
+}
+```
+
+Se lee **al arrancar**, así que hay que cerrar y abrir Claude Code — con `/mcp` no
+aparece. No sale a la red: lee el archivo local que el puente ya mantiene.
+
+### 6.7 Comprobar
+
+```
+¿En qué canales estoy?   →  canal_estado
+```
+
+| Síntoma | Causa |
+|---|---|
+| No existen las tools `canal_*` | El MCP no quedó registrado (6.2) |
+| Existen pero no llega nada | Arrancaste sin el flag (6.3) |
+| "sin identidad" | Falta 6.4, o abriste sesión nueva |
+| El puente no arranca | `node` del PATH viejo: usa la ruta absoluta al de 18+ |
 
 ---
 

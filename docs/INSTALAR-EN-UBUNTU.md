@@ -4,10 +4,14 @@ Esta guía es para **usar** el sistema, no para montarlo. Al terminar, Claude Co
 tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que se abra.
 
 > **Si eres un agente de IA y te dijeron "lee esto e instálalo":** sigue los pasos
-> 1 a 4 **en orden y comprobando la salida de cada uno** — si `which` no imprime
+> 1 a 6 **en orden y comprobando la salida de cada uno** — si `which` no imprime
 > nada o `claude mcp list` no dice *Connected*, para y arregla eso antes de
 > seguir; encadenar comandos sobre un paso fallido deja al usuario con una
 > instalación a medias que parece buena.
+>
+> El paso 4 (CLI) sí puedes saltarlo. **El paso 6 (canales) no**: son dos mitades,
+> memoria y hablar con otros agentes, y sin él, cuando alguien te escriba no te vas
+> a enterar.
 >
 > Lo único que no está aquí — y que **no puede estar**, porque el repositorio es
 > público — son la **URL base** y la **apikey**. Si el usuario no te las dio,
@@ -155,7 +159,7 @@ Si no hay `python3`, edita `~/.claude/settings.json` a mano y añade las dos reg
 dentro de `permissions.allow`. Comprueba después que sigue siendo JSON válido.
 
 **Con esto ya tienes memoria en Claude Code.** El paso 4 es opcional y no aporta
-nada dentro del agente.
+nada dentro del agente; el **paso 6 (canales) sí hay que hacerlo**.
 
 ---
 
@@ -250,26 +254,143 @@ Y quita las entradas de `permissions.allow` en `~/.claude/settings.json`.
 
 ---
 
-## Canales entre agentes (opcional)
+## 6. Canales entre agentes
 
-Aparte de la memoria, menx puede hacer que **dos agentes en máquinas distintas se
-hablen**: le dices al tuyo "pregúntale a QA si terminó" y el agente de la otra
-máquina se pone a trabajar, aunque nadie esté mirando esa pantalla.
+Hasta aquí tienes **memoria**. Esta es la otra mitad: que **dos agentes en máquinas
+distintas se hablen**. Le dices al tuyo "pregúntale a QA si terminó" y el agente de
+la otra máquina arranca a trabajar, aunque nadie esté mirando esa pantalla.
 
-Es un MCP aparte, con su propia instalación, y solo tiene sentido si vas a
-coordinar varios agentes. Los pasos están en
-**[ACTUALIZAR.md § 3](ACTUALIZAR.md#3-canales-entre-agentes-opcional)**, que sirve
-igual recién instalado.
+En un servidor es justo lo que lo vuelve útil: el agente de aquí recibe encargos
+sin que nadie tenga una terminal abierta mirándolo. Instálalo aunque hoy trabajes
+solo — sin esto puedes escribir en un canal pero **no recibir**, y el que te
+escriba creerá que te llegó.
 
-Dos avisos que en un servidor muerden más que en un portátil:
+### 6.1 Node: la trampa número uno en servidores
 
-- Necesita **Node 18+**. En servidores viejos el `node` del PATH suele ser el del
-  sistema (v10 o parecido) aunque haya uno moderno bajo nvm. Comprueba con
-  `node --version` y, si no llega, pon la **ruta absoluta** al binario bueno en la
-  config del MCP: si no, el puente falla al arrancar sin decir por qué.
-- Los canales **no funcionan con un `/mcp`**. Hay que arrancar Claude Code con
-  `--dangerously-load-development-channels server:menx-canal`. Sin el flag verás
-  las tools y no te llegará ni un mensaje.
+Necesita **Node 18+**, y en un servidor el `node` del PATH suele ser el viejo del
+sistema aunque haya uno moderno instalado:
+
+```bash
+node --version                      # el del PATH
+ls ~/.nvm/versions/node 2>/dev/null # los de nvm, si hay
+```
+
+Si el del PATH no llega a 18, **no basta con tener otro instalado**: hay que usar
+su **ruta absoluta** en el paso 6.3. Nos pasó en un Ubuntu 20.04 con `node` v10 en
+`/usr/bin` y un v22 bajo nvm; con `node` a secas el puente falla al arrancar y no
+dice por qué.
+
+```bash
+ls -d ~/.nvm/versions/node/*/bin/node    # esta es la ruta que vas a usar
+```
+
+### 6.2 Traer el puente
+
+El puente es un MCP local que corre en esta máquina. El hub no puede empujar nada
+hacia una sesión — es petición/respuesta —, así que esta pieza es la que despierta
+al agente cuando le escriben.
+
+```bash
+git clone https://github.com/jpanqueva/menximple.git ~/menximple
+cd ~/menximple/canal
+PATH=~/.nvm/versions/node/v22.19.0/bin:$PATH npm install   # ajusta la versión
+```
+
+### 6.3 Registrarlo
+
+**La misma URL y la misma apikey del paso 2.** Con Node moderno en el PATH:
+
+```bash
+claude mcp add --scope user menx-canal \
+  -e MEMORY_BASE_URL=<URL> -e MEMORY_APIKEY=<APIKEY> \
+  -- node ~/menximple/canal/menx-canal.mjs
+```
+
+Si el `node` del PATH es viejo, **ruta absoluta**:
+
+```bash
+claude mcp add --scope user menx-canal \
+  -e MEMORY_BASE_URL=<URL> -e MEMORY_APIKEY=<APIKEY> \
+  -- /home/TU-USUARIO/.nvm/versions/node/v22.19.0/bin/node /home/TU-USUARIO/menximple/canal/menx-canal.mjs
+```
+
+> Aquí **no** se pone ningún nombre de agente. La identidad se pide por
+> conversación (6.5): en una misma máquina puedes tener varios agentes abiertos y
+> cada uno es uno distinto.
+
+### 6.4 Arrancar con el flag
+
+**Los canales no se activan con `/mcp`.** Hay que arrancar Claude Code así:
+
+```bash
+claude --dangerously-load-development-channels server:menx-canal
+```
+
+Sale una advertencia → **"I am using this for local development"**. Es
+"dangerously" solo porque los canales propios no están en la lista aprobada de
+Anthropic mientras la función es research preview.
+
+> **El fallo más confuso de todo esto:** sin el flag el MCP se registra igual y
+> **verás** las tools `canal_*`, pero no llegará ningún mensaje. Parece instalado y
+> está mudo.
+
+### 6.5 Identificarte
+
+> Identifícate en los canales de menx como `qa-ubuntu`.
+
+Algo reconocible para el otro lado. Sobrevive a los `/mcp`; con `/resume` o al
+reiniciar, Claude Code abre sesión nueva y te la vuelve a pedir — sugiriéndote la
+que usaste antes en esa carpeta.
+
+### 6.6 Hablar
+
+```
+¿Qué canales hay?                     →  listar_canales
+Crea un canal "qa" y entra.           →  canal_crear
+Dile a jhon-windows que ya terminé.   →  canal_enviar
+```
+
+Un canal admite **2 agentes**; puedes estar en varios a la vez. Lo que pasa solo:
+el mensaje **entra en tu sesión** y arranca un turno si estabas ocioso, tu puente
+**acusa recibo** automáticamente, y nada se da por leído hasta que entra de verdad
+—si el puente se cae antes, se reentrega—.
+
+Con el puente corriendo **no esperes mensajes a mano** con `recibir_mensajes`:
+llegan empujados y esa tool casi siempre devolverá vacío.
+
+### 6.7 Barra de estado
+
+La identidad del canal es invisible, y un agente que se cree identificado y no lo
+está deja de recibir sin que nada lo diga. En `~/.claude/settings.json`:
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "/home/TU-USUARIO/.nvm/versions/node/v22.19.0/bin/node /home/TU-USUARIO/menximple/canal/statusline-menx.mjs",
+  "padding": 1
+}
+```
+
+Queda algo así:
+
+```
+insumedic  |  Opus 5  |  menx: qa-ubuntu · 1 canal: qa
+```
+
+Se lee **al arrancar**: hay que cerrar y abrir Claude Code, con `/mcp` no aparece.
+
+### 6.8 Comprobar
+
+```
+¿En qué canales estoy?   →  canal_estado
+```
+
+| Síntoma | Causa |
+|---|---|
+| No existen las tools `canal_*` | El MCP no quedó registrado (6.3) |
+| Existen pero no llega nada | Arrancaste sin el flag (6.4) |
+| "sin identidad" | Falta 6.5, o abriste sesión nueva |
+| El puente no arranca y no dice por qué | El `node` viejo del PATH (6.1) |
 
 ---
 
