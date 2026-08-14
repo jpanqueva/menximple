@@ -30,16 +30,28 @@ process.stdin.on('end', () => {
   let sesion = ''
   let modelo = ''
   let dir = ''
+  let dirCompleto = ''
   try {
     const j = JSON.parse(entrada || '{}')
     sesion = j.session_id ?? ''
     modelo = j.model?.display_name ?? ''
-    dir = (j.workspace?.current_dir ?? j.cwd ?? '').split(/[\\/]/).pop() ?? ''
+    dirCompleto = j.workspace?.current_dir ?? j.cwd ?? ''
+    dir = dirCompleto.split(/[\\/]/).filter(Boolean).pop() ?? ''
   } catch { /* sin json utilizable: se pinta lo que se pueda */ }
 
   let menx = 'menx: sin identidad'
   try {
-    const d = JSON.parse(readFileSync(ARCHIVO, 'utf8'))[sesion]
+    const todas = JSON.parse(readFileSync(ARCHIVO, 'utf8'))
+    // Primero por sesión; si no, la más reciente de ESTA carpeta.
+    //
+    // El puente guarda contra el CLAUDE_CODE_SESSION_ID que recibe al arrancar, y
+    // la barra recibe el `session_id` del JSON de Claude Code. Se dio por hecho que
+    // eran el mismo y no siempre lo son —tras un /resume la barra decía "sin
+    // identidad" con el puente perfectamente identificado—, así que la carpeta
+    // sirve de respaldo: es el mismo criterio con el que el puente sugiere.
+    const d = todas[sesion] ?? Object.values(todas)
+      .filter((v) => v?.cwd && v.cwd === dirCompleto && v?.agente)
+      .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))[0]
     if (d?.agente) {
       menx = `menx: ${d.agente}`
       // Distinguir "sé que no tiene canales" de "no lo sé todavía": un registro
