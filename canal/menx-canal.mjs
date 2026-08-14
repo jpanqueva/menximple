@@ -263,6 +263,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       if (!n) return mal('el nombre no puede ir vacío')
       agente = n
       recordar(n)
+      tomarTurno(n)          // el que se acaba de identificar es el vivo
+      empujado.clear()       // instancia nueva: lo no confirmado se reentrega
       const mios = await llamar('mis_canales', { agente })
       recordar(n, mios.map((x) => x.nombre))
       log(`identidad: "${agente}" (${mios.length} canal/es)`)
@@ -342,17 +344,56 @@ async function confirmar(canal, quien, hasta) {
 // propósito: entonces sí queremos que se reentregue lo que quedó sin confirmar.
 const empujado = new Map()
 
+// --- un solo consumidor por identidad -------------------------------------- //
+//
+// Puede haber varias instancias del puente vivas a la vez: un /mcp respawnea, y
+// compact/resume llega a dejar dos bajo el mismo `claude`. Todas recuperan la
+// misma identidad del archivo y todas se ponen a consumir el buzón. La que gana la
+// carrera empuja el mensaje por SU stdio, que puede no ser el que Claude Code está
+// leyendo — y el mensaje se pierde sin que nadie se entere. Es lo que hizo
+// desaparecer un informe entero.
+//
+// El último en identificarse gana: es el que acaba de arrancar y por tanto el que
+// está enganchado a la sesión viva. Las demás siguen atendiendo tools —no se sabe
+// a cuál rutea Claude Code— pero dejan de tocar el buzón.
+const CERROJO = join(ARCHIVO, '..', 'consumidor.json')
+
+function leerCerrojos() {
+  try {
+    return JSON.parse(readFileSync(CERROJO, 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function tomarTurno(quien) {
+  try {
+    mkdirSync(join(CERROJO, '..'), { recursive: true })
+    writeFileSync(CERROJO, JSON.stringify({ ...leerCerrojos(), [quien]: process.pid }))
+  } catch { /* sin cerrojo se consume igual: peor es no escuchar */ }
+}
+
+function miTurno(quien) {
+  const d = leerCerrojos()[quien]
+  return d === undefined || d === process.pid
+}
+
 async function escuchar() {
   let fallos = 0
   for (;;) {
     if (!agente) { await dormir(1); continue }   // aún sin identidad: nada que oír
     const quien = agente
+    if (!miTurno(quien)) { await dormir(2); continue }   // otra instancia es la viva
     try {
       // `marcar: false` — nada se da por leído hasta que entre en la sesión.
       const r = await llamar('recibir_de_todos',
                              { agente: quien, espera: ESPERA, marcar: false })
       fallos = 0
       if (quien !== agente) continue             // se reidentificó mientras esperaba
+      // Y otra vez el turno: la espera dura 100 s, tiempo de sobra para que arranque
+      // una instancia nueva. Comprobar solo antes de pedir deja abierta justo la
+      // ventana en la que llega el mensaje.
+      if (!miTurno(quien)) { await dormir(2); continue }
       for (const c of r?.canales ?? []) {
         const ya = empujado.get(c.canal) ?? 0
         const nuevos = (c.mensajes ?? []).filter((m) => m.seq > ya)
@@ -417,8 +458,16 @@ async function escuchar() {
   }
 }
 
+// Morir cuando Claude Code cierra la tubería. Sin esto, cada /mcp deja atrás una
+// instancia viva que sigue consumiendo el buzón y empujando por un stdio que ya
+// nadie lee. Llegamos a tener cuatro puentes a la vez en la misma máquina.
+process.stdin.on('end', () => process.exit(0))
+process.stdin.on('close', () => process.exit(0))
+
 if (agente) {
   log(`identidad recuperada: "${agente}" — sigo escuchando`)
+  tomarTurno(agente)     // al arrancar, el nuevo se queda con el turno
+
   // Refrescar los canales al arrancar. Sin esto, tras un /mcp la barra de estado
   // seguiría mostrando la lista de la última vez que alguien se identificó o entró
   // a un canal — o ninguna, si la identidad se guardó antes de que se guardaran.
