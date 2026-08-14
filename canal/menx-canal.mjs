@@ -63,15 +63,33 @@ const mcp = new Server(
 
 // --- cliente hacia el hub -------------------------------------------------- //
 
-let hub = null
+// La conexión se guarda como PROMESA, no como cliente ya resuelto, y cada llamada
+// se queda con la suya. Aquí siempre hay al menos dos cosas hablando con el hub a
+// la vez —el bucle de escucha, colgado 100 s, y las tools que llama el agente— y
+// con un `hub` a secas pasaba esto: fallaba la del bucle, ponía `hub = null`, y la
+// otra llamada, que ya había pasado el `if (!hub)`, reventaba con
+// "Cannot read properties of null". Guardar la promesa además evita que dos
+// llamadas simultáneas abran dos sesiones contra el hub.
+let conexion = null
+
+function cliente() {
+  if (!conexion) {
+    conexion = (async () => {
+      const c = new Client({ name: 'menx-canal', version: '0.2.0' }, { capabilities: {} })
+      await c.connect(new StreamableHTTPClientTransport(new URL(URL_HUB), {
+        requestInit: { headers: { 'X-API-Key': APIKEY } },
+      }))
+      return c
+    })()
+    // Si falla el connect, que no quede pegada una promesa rota para siempre.
+    conexion.catch(() => { conexion = null })
+  }
+  return conexion
+}
 
 async function llamar(tool, args) {
-  if (!hub) {
-    hub = new Client({ name: 'menx-canal', version: '0.2.0' }, { capabilities: {} })
-    await hub.connect(new StreamableHTTPClientTransport(new URL(URL_HUB), {
-      requestInit: { headers: { 'X-API-Key': APIKEY } },
-    }))
-  }
+  const mia = cliente()
+  const hub = await mia
   let d
   try {
     const r = await hub.callTool({ name: tool, arguments: args })
@@ -79,7 +97,9 @@ async function llamar(tool, args) {
     if (r?.isError) throw new Error(txt || 'error del hub')
     d = txt ? JSON.parse(txt) : (r?.structuredContent ?? null)
   } catch (e) {
-    hub = null                    // sesión caída: se reconecta en la próxima vuelta
+    // Solo tiro la conexión que yo usé: si otra llamada ya la reemplazó, la nueva
+    // está sana y descartarla dejaría a los demás sin nada.
+    if (conexion === mia) conexion = null
     throw e
   }
   // Una tool que devuelve lista llega envuelta como {"result": [...]} — es cómo
