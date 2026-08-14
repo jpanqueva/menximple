@@ -338,10 +338,20 @@ def mis_canales(agente: str) -> list[dict]:
 
 
 @mcp.tool
-def recibir_de_todos(agente: str, espera: int = 0) -> dict:
+def recibir_de_todos(agente: str, espera: int = 0, marcar: bool = True) -> dict:
     """Lo pendiente en **todos** tus canales de una vez. Es lo que usa el puente
-    local; a mano sirve para "¿me escribió alguien?" sin ir canal por canal."""
-    return _g(canales.recibir_todo, agente, espera)
+    local; a mano sirve para "¿me escribió alguien?" sin ir canal por canal.
+
+    `marcar=False` no da nada por leído — solo para quien vaya a confirmar
+    después con `confirmar_entrega`."""
+    return _g(canales.recibir_todo, agente, espera, marcar)
+
+
+@mcp.tool
+def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
+    """Da por leído hasta ese `seq`. La usa el puente cuando el mensaje ya entró
+    de verdad en la sesión; a mano no hace falta."""
+    return _g(canales.confirmar_entrega, canal, agente, hasta)
 
 
 # --- Administración de cuentas (protegida por X-Admin-Token) ---

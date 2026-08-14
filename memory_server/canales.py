@@ -191,12 +191,36 @@ def mis_canales(agente: str) -> list[dict]:
     return [_out(c) for c in _canales_de(_agente(agente))]
 
 
-def recibir_todo(agente: str, espera: int = 0) -> dict:
+def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
+    """Marca como leído hasta `hasta`. Va aparte de `recibir_todo` a propósito.
+
+    Antes se marcaba al ENTREGARLO al puente, no al llegar a la sesión, y en ese
+    hueco se perdía: si el puente moría —o el usuario reconectaba el MCP justo
+    ahí— el mensaje quedaba consumido y no se entregaba nunca. Pasó, y en silencio.
+
+    Separarlo cambia el riesgo por el opuesto: si la confirmación se pierde, el
+    mensaje se vuelve a entregar. Repetido es molesto; perdido es un fallo."""
+    c = _canal(canal)
+    agente = _agente(agente)
+    m = _miembro(c, agente)
+    hasta = max(int(hasta or 0), m.get("visto", 0))   # nunca retroceder
+    for x in c["miembros"]:
+        if x["agente"] == agente:
+            x["visto"] = min(hasta, c.get("seq", 0))
+    store.upsert(store.CANALES, c["_id"], c)
+    return {"canal": c["nombre"], "agente": agente, "leido_hasta": hasta}
+
+
+def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
     """Lo pendiente en **todos** los canales del agente, en una sola espera.
 
     Es lo que usa el puente local: un agente suele estar en varios canales y abrir
     una espera por cada uno sería una llamada colgada por canal. Devuelve en cuanto
-    entra algo en cualquiera de ellos."""
+    entra algo en cualquiera de ellos.
+
+    `marcar=False` NO da nada por leído: quien llama se compromete a confirmar con
+    `confirmar_entrega` cuando el mensaje esté de verdad en la sesión. Es lo que
+    usa el puente; ver por qué en `confirmar_entrega`."""
     import time
 
     agente = _agente(agente)
@@ -208,14 +232,14 @@ def recibir_todo(agente: str, espera: int = 0) -> dict:
         for c in _canales_de(agente):
             visto = next(m.get("visto", 0) for m in c["miembros"] if m["agente"] == agente)
             msgs, hasta = _pendientes(c, visto, agente)
-            if hasta > visto:
+            if marcar and hasta > visto:
                 for x in c["miembros"]:
                     if x["agente"] == agente:
                         x["visto"] = hasta
                 store.upsert(store.CANALES, c["_id"], c)
             if msgs:
                 salida.append({
-                    "canal": c["nombre"],
+                    "canal": c["nombre"], "hasta": hasta,
                     "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
                                   "acuse": bool(x.get("acuse")),
                                   "cuando": store.iso(x["ts"])} for x in msgs],

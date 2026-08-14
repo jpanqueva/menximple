@@ -288,18 +288,44 @@ await mcp.connect(new StdioServerTransport())
 const ESPERA = 100          // < 110 del hub, y muy por debajo del corte de 120 s
 const dormir = (s) => new Promise((r) => setTimeout(r, s * 1000))
 
+async function confirmar(canal, quien, hasta) {
+  if (!hasta) return
+  try {
+    await llamar('confirmar_entrega', { canal, agente: quien, hasta })
+  } catch (e) {
+    // No es grave: la vuelta siguiente lo reintenta. Lo caro sería lo contrario,
+    // dar por leído algo que no llegó.
+    log(`no pude confirmar ${canal} hasta ${hasta}: ${e?.message ?? e}`)
+  }
+}
+
+// Alto de agua local por canal: hasta qué seq YA se empujó en este proceso. Como
+// el hub ya no marca nada al entregar, sin esto una confirmación fallida haría que
+// la vuelta siguiente reenviara lo mismo, en bucle. Al reiniciar se pierde a
+// propósito: entonces sí queremos que se reentregue lo que quedó sin confirmar.
+const empujado = new Map()
+
 async function escuchar() {
   let fallos = 0
   for (;;) {
     if (!agente) { await dormir(1); continue }   // aún sin identidad: nada que oír
     const quien = agente
     try {
-      const r = await llamar('recibir_de_todos', { agente: quien, espera: ESPERA })
+      // `marcar: false` — nada se da por leído hasta que entre en la sesión.
+      const r = await llamar('recibir_de_todos',
+                             { agente: quien, espera: ESPERA, marcar: false })
       fallos = 0
       if (quien !== agente) continue             // se reidentificó mientras esperaba
       for (const c of r?.canales ?? []) {
+        const ya = empujado.get(c.canal) ?? 0
+        const nuevos = (c.mensajes ?? []).filter((m) => m.seq > ya)
+        if (!nuevos.length) {
+          // Todo esto ya se empujó y solo falta confirmarlo: reintentar ahora.
+          await confirmar(c.canal, quien, c.hasta)
+          continue
+        }
         let porAcusar = 0
-        for (const m of c.mensajes ?? []) {
+        for (const m of nuevos) {
           await mcp.notification({
             method: 'notifications/claude/channel',
             params: {
@@ -315,6 +341,10 @@ async function escuchar() {
           log(`<- ${c.canal} · ${m.de}: ${m.texto.slice(0, 60)}`)
           if (!m.acuse) porAcusar++
         }
+
+        // Ya están en la sesión: recién ahora se pueden dar por leídos.
+        empujado.set(c.canal, Math.max(ya, nuevos[nuevos.length - 1].seq))
+        await confirmar(c.canal, quien, c.hasta)
 
         // Acuse automático, UNO POR LOTE. Un encargo puede tardar mucho, y sin
         // esto quien preguntó no distingue "no lo ha leído" de "lo está
