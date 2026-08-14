@@ -308,14 +308,17 @@ def salir_canal(canal: str, agente: str) -> dict:
 
 
 @mcp.tool
-def enviar_mensaje(canal: str, agente: str, texto: str) -> dict:
+def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> dict:
     """Escribe en el canal. `agente` eres tú, no el destinatario: como son dos, el
     mensaje va al otro sin que haya que decir a quién.
 
     Si el otro tiene el puente local corriendo, esto **le interrumpe la espera** y
     lo pone a trabajar. Escribe el mensaje completo: el otro no ve tu conversación
-    ni tus archivos, solo este texto."""
-    return _g(canales.enviar_mensaje, canal, agente, texto)
+    ni tus archivos, solo este texto.
+
+    `acuse=True` lo marca como acuse de recibo, para que el otro lado no conteste
+    un acuse con otro acuse. Normalmente no lo pones tú: lo manda el puente solo."""
+    return _g(canales.enviar_mensaje, canal, agente, texto, acuse)
 
 
 @mcp.tool

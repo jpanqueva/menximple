@@ -135,7 +135,13 @@ def salir_canal(canal: str, agente: str) -> dict:
     return _out(c)
 
 
-def enviar_mensaje(canal: str, agente: str, texto: str) -> dict:
+def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> dict:
+    """Escribe en el canal. `acuse=True` marca el mensaje como acuse de recibo.
+
+    El acuse existe porque un encargo puede tardar mucho y, sin él, quien preguntó
+    no distingue "todavía no lo ha leído" de "lo está trabajando". Va marcado para
+    que el puente del otro lado no conteste un acuse con otro acuse: así es como
+    dos agentes educados se saludan para siempre."""
     texto = (texto or "").strip()
     if not texto:
         raise MemoriaError("el mensaje está vacío")
@@ -147,7 +153,7 @@ def enviar_mensaje(canal: str, agente: str, texto: str) -> dict:
     ts = store.now_ts()
     store.upsert(store.MENSAJES, store.nuevo_id(),
                  {"_id": store.nuevo_id(), "canal_id": c["_id"], "seq": seq,
-                  "de": agente, "texto": texto, "ts": ts})
+                  "de": agente, "texto": texto, "ts": ts, "acuse": bool(acuse)})
     c["seq"] = seq
     c["updated_at"] = ts
     store.upsert(store.CANALES, c["_id"], c)
@@ -211,6 +217,7 @@ def recibir_todo(agente: str, espera: int = 0) -> dict:
                 salida.append({
                     "canal": c["nombre"],
                     "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
+                                  "acuse": bool(x.get("acuse")),
                                   "cuando": store.iso(x["ts"])} for x in msgs],
                 })
         if salida or time.time() >= limite:
@@ -250,6 +257,7 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
     return {
         "canal": c["nombre"],
         "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
+                      "acuse": bool(x.get("acuse")),
                       "cuando": store.iso(x["ts"])} for x in msgs],
         "esperando": [a["agente"] for a in c.get("miembros", [])
                       if a["agente"] != agente] or None,
