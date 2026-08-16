@@ -41,13 +41,20 @@ cd menximple && git pull
 > entorno, así que queda a medias. El error es un stack de `pathlib` que no dice
 > "cierra Claude Code", que es lo que hay que hacer.
 >
-> Si aun así falla, mira si quedaron procesos de sesiones anteriores:
+> Si aun así falla, casi seguro tienes **otra ventana de Claude Code abierta**:
+> cada una mantiene su propio selector, y un selector de hace días con su ventana
+> todavía abierta se parece mucho a un proceso colgado sin serlo. Ciérralas y repite.
+>
+> Si de verdad quedaron sueltos, mata el **árbol** y no el nombre — `menximple-mcp.exe`
+> es un envoltorio que lanza un `python.exe` aparte, así que matar el envoltorio deja
+> al hijo vivo:
 >
 > ```powershell
-> Get-Process menximple-mcp -ErrorAction SilentlyContinue | Stop-Process -Force
+> $todos = Get-CimInstance Win32_Process
+> $wrap  = @($todos | Where-Object { $_.Name -like 'menximple-mcp*' })
+> $hijos = @($todos | Where-Object { $wrap.ProcessId -contains $_.ParentProcessId })
+> ($wrap + $hijos) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 > ```
->
-> y repite el comando.
 
 ## 1.2 Reconectar el hub
 

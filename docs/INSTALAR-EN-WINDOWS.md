@@ -267,13 +267,23 @@ stack de `pathlib` que no menciona a Claude Code por ningún lado.
 pipx install --force "git+https://github.com/jpanqueva/menximple@main"
 ```
 
-Si falla igual, quedaron procesos de sesiones anteriores:
+Si falla igual, **es que tienes otra ventana de Claude Code abierta** — cada una
+mantiene su propio selector. Ciérralas todas y repite; suele ser eso, no procesos
+colgados.
+
+Si de verdad quedaron sueltos, mata el **árbol**, no el nombre:
 
 ```powershell
-Get-Process menximple-mcp -ErrorAction SilentlyContinue | Stop-Process -Force
+$todos = Get-CimInstance Win32_Process
+$wrap  = @($todos | Where-Object { $_.Name -like 'menximple-mcp*' })
+$hijos = @($todos | Where-Object { $wrap.ProcessId -contains $_.ParentProcessId })
+($wrap + $hijos) | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 ```
 
-y repite el comando.
+> `Get-Process menximple-mcp | Stop-Process` **no basta**: `menximple-mcp.exe` es un
+> envoltorio que lanza un `python.exe` aparte, y matar el envoltorio deja al hijo
+> vivo. Comprobado — con seis selectores, ese comando dejaba seis `python.exe`
+> sueltos.
 
 Reinicia Claude Code después: el servidor local arranca con la sesión, así que el
 código nuevo no aplica hasta reiniciar.
