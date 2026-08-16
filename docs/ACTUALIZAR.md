@@ -196,6 +196,12 @@ En `~/.claude/settings.json` (Windows: `%USERPROFILE%\.claude\settings.json`):
 }
 ```
 
+> **En Windows, barras normales** — `C:/ruta/...`, no `C:\ruta\...`. Claude Code
+> corre este comando a través de Git Bash y ahí los backslashes se comen como
+> escapes: la ruta llega rota, Node muere con `MODULE_NOT_FOUND` y la barra no
+> aparece, sin decir por qué. Probarlo desde PowerShell da un **falso positivo**,
+> porque ahí sí funcionan.
+
 Con Node viejo en el PATH, ruta absoluta también aquí. Se lee **al arrancar**: hay
 que cerrar y abrir Claude Code, con `/mcp` no aparece. No sale a la red — lee el
 archivo local que el puente ya mantiene. Si ya tienes una barra propia, mira el

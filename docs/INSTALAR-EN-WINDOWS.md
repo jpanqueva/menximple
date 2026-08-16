@@ -394,6 +394,14 @@ En `%USERPROFILE%\.claude\settings.json`:
 }
 ```
 
+> **Barras normales, no backslashes** — `C:/dev/...`, no `C:\dev\...`. Claude Code
+> corre este comando a través de Git Bash, y ahí `\U`, `\c` y compañía se comen como
+> escapes: la ruta llega rota, Node muere con `MODULE_NOT_FOUND` y la barra
+> simplemente no aparece, sin decir por qué.
+>
+> Y no lo pruebes desde PowerShell: ahí los backslashes **sí funcionan**, así que te
+> da un falso positivo y concluyes que está bien cuando no lo está.
+
 Se lee **al arrancar**, así que hay que cerrar y abrir Claude Code — con `/mcp` no
 aparece. No sale a la red: lee el archivo local que el puente ya mantiene.
 
