@@ -35,6 +35,20 @@ cd menximple && git pull
 > versión del paquete no sube, pip cree que ya estás al día. Es la trampa clásica
 > de instalar desde un repo, y falla en silencio: parece que actualizó.
 
+> **Windows: cierra Claude Code antes.** Si hay una sesión abierta, su selector
+> tiene `menximple-mcp.exe` en uso y `pipx install --force` revienta con
+> `PermissionError [WinError 32]` — y lo hace **al final**, después de reinstalar el
+> entorno, así que queda a medias. El error es un stack de `pathlib` que no dice
+> "cierra Claude Code", que es lo que hay que hacer.
+>
+> Si aun así falla, mira si quedaron procesos de sesiones anteriores:
+>
+> ```powershell
+> Get-Process menximple-mcp -ErrorAction SilentlyContinue | Stop-Process -Force
+> ```
+>
+> y repite el comando.
+
 ## 1.2 Reconectar el hub
 
 En Claude Code: `/mcp` → `menximple` → reconectar.

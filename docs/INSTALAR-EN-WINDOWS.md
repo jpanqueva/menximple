@@ -258,9 +258,22 @@ la ventana no, el hub está bien y el problema es el servidor local del paso 3.
 
 ## Actualizar
 
+**Cierra Claude Code antes.** Con una sesión abierta, su selector tiene
+`menximple-mcp.exe` en uso y el comando revienta con `PermissionError [WinError 32]`
+— al final, después de reinstalar el entorno, así que queda a medias. El error es un
+stack de `pathlib` que no menciona a Claude Code por ningún lado.
+
 ```powershell
 pipx install --force "git+https://github.com/jpanqueva/menximple@main"
 ```
+
+Si falla igual, quedaron procesos de sesiones anteriores:
+
+```powershell
+Get-Process menximple-mcp -ErrorAction SilentlyContinue | Stop-Process -Force
+```
+
+y repite el comando.
 
 Reinicia Claude Code después: el servidor local arranca con la sesión, así que el
 código nuevo no aplica hasta reiniciar.
