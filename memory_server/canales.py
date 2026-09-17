@@ -345,3 +345,48 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
         "esperando": [a["agente"] for a in c.get("miembros", [])
                       if a["agente"] != agente] or None,
     }
+
+
+# --- Esperas que no retienen un hilo -------------------------------------- #
+# Las versiones de arriba son SÍNCRONAS y duermen con `time.sleep` hasta 110 s.
+# FastMCP corre las tools síncronas en el threadpool de anyio, cuyo limitador por
+# defecto son 40 hilos: cada agente esperando ocupaba uno de esos 40 durante toda
+# la espera, y como ese pool es compartido con las otras 34 tools, con 40 esperas
+# simultáneas el hub dejaba de atender TODO (buscar, cargar_contexto, crear...).
+# Fue lo que lo tumbó el 2026-09-17.
+#
+# Estos envoltorios mueven la ESPERA al event loop (`asyncio.sleep`, coste: una
+# corrutina) y dejan en un hilo solo la CONSULTA, que dura milisegundos. Se
+# apoyan en las funciones de arriba con `espera=0`, que hacen exactamente una
+# comprobación sin dormir — así no se duplica la lógica.
+#
+# OJO: NO convertir las funciones de arriba en `async def` sin más. `store` es
+# síncrono y habla con Qdrant por red: esas llamadas dentro de una corrutina
+# bloquearían el event loop, que es uno solo, y quedaría peor que antes.
+
+async def recibir_async(canal: str, agente: str, espera: int = 0,
+                        marcar: bool = True) -> dict:
+    """`recibir`, pero la espera no retiene un hilo del pool."""
+    import asyncio, time
+
+    espera = max(0, min(int(espera or 0), ESPERA_MAX))
+    limite = time.time() + espera
+    while True:
+        r = await asyncio.to_thread(recibir, canal, agente, 0, marcar)
+        if r["mensajes"] or time.time() >= limite:
+            return r
+        await asyncio.sleep(1.0)
+
+
+async def recibir_todo_async(agente: str, espera: int = 0,
+                             marcar: bool = True) -> dict:
+    """`recibir_todo`, pero la espera no retiene un hilo del pool."""
+    import asyncio, time
+
+    espera = max(0, min(int(espera or 0), ESPERA_MAX))
+    limite = time.time() + espera
+    while True:
+        r = await asyncio.to_thread(recibir_todo, agente, 0, marcar)
+        if r["canales"] or time.time() >= limite:
+            return r
+        await asyncio.sleep(1.0)

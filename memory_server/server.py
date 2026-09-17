@@ -30,6 +30,14 @@ def _g(fn, *args, **kwargs):
         raise ToolError(str(e))
 
 
+async def _ga(fn, *args, **kwargs):
+    """Igual que `_g` para las tools async (las esperas de canal)."""
+    try:
+        return await fn(*args, **kwargs)
+    except MemoriaError as e:
+        raise ToolError(str(e))
+
+
 # --- Navegación ---
 
 @mcp.tool
@@ -344,13 +352,13 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
 
 
 @mcp.tool
-def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
+async def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
     """Lo que te hayan escrito y no hayas leído. `espera` en segundos deja la
     llamada colgada hasta que llegue algo (máximo 110; Claude Code corta a los 120).
 
     Úsala para esperar la respuesta después de preguntar algo. Si vuelve vacía, el
     otro no ha contestado: puedes reintentar o seguir con lo tuyo."""
-    return _g(canales.recibir, canal, agente, espera)
+    return await _ga(canales.recibir_async, canal, agente, espera)
 
 
 @mcp.tool
@@ -360,13 +368,13 @@ def mis_canales(agente: str) -> list[dict]:
 
 
 @mcp.tool
-def recibir_de_todos(agente: str, espera: int = 0, marcar: bool = True) -> dict:
+async def recibir_de_todos(agente: str, espera: int = 0, marcar: bool = True) -> dict:
     """Lo pendiente en **todos** tus canales de una vez. Es lo que usa el puente
     local; a mano sirve para "¿me escribió alguien?" sin ir canal por canal.
 
     `marcar=False` no da nada por leído — solo para quien vaya a confirmar
     después con `confirmar_entrega`."""
-    return _g(canales.recibir_todo, agente, espera, marcar)
+    return await _ga(canales.recibir_todo_async, agente, espera, marcar)
 
 
 @mcp.tool
