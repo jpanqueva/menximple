@@ -25,7 +25,9 @@ services:
       - qdrant
     volumes:
       - hf_cache:/home/app/.cache          # caché del modelo de embeddings (si se usa)
+      - archivos_data:/data/archivos        # archivos publicados (los bytes)
 
 volumes:
   qdrant_data:
   hf_cache:
+  archivos_data:

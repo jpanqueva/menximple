@@ -60,6 +60,27 @@ curl -s -o /dev/null -w 'tcp=%{time_connect} tls=%{time_appconnect}\n' ... \
 # el segundo debe marcar tcp=0.000 tls=0.000
 ```
 
+### Archivos publicados: el link público
+
+La **subida** no necesita nada nuevo en nginx: va a `/mcp/archivos`, que ya pasa
+por el `location /mcp`. Los **links** sí, porque viven fuera de `/mcp`:
+
+```nginx
+location /f/ {
+    proxy_pass http://127.0.0.1:8000/f/;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+}
+```
+
+Y en el `server`, `client_max_body_size 20M;` (o lo que pongas en
+`ARCHIVOS_MAX_MB`): el default de nginx es 1 MB y corta la subida con un 413 que
+no trae JSON. En `.env`, `PUBLIC_BASE_URL` = el dominio público
+(`https://tu-dominio`) — sin él las URLs salen relativas.
+
+Los bytes van al volumen `archivos_data` (en `/data/archivos`), no a Qdrant.
+
 ### Actualizar
 ```bash
 cd menximple && git pull && docker compose up -d --build
@@ -104,3 +125,7 @@ apikey en `MEMORY_APIKEY`. Ver `INSTALL-CLIENTE.md`.
 | `ADMIN_TOKEN` | (vacío = abierto) | protege crear/listar cuentas |
 | `EMBEDDINGS_ENABLED` | `false` | activa vectores del resumen |
 | `EMBEDDING_MODEL` / `EMBEDDING_DIMS` | e5-small / 384 | modelo de embeddings |
+| `PUBLIC_BASE_URL` | (vacío = URLs relativas) | con qué empiezan los links de archivos |
+| `ARCHIVOS_DIR` | `/data/archivos` | dónde van los bytes (volumen `archivos_data`) |
+| `ARCHIVOS_MAX_MB` | `20` | tamaño máximo por archivo; nginx tiene que dejar pasar lo mismo |
+| `ARCHIVOS_CUOTA_MB` | `500` | cuánto puede ocupar cada cuenta |

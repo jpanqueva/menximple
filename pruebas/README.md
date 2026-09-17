@@ -18,6 +18,7 @@ que hay que pasar antes de tocar `memory_server/`.
 | `test_canales.py` | crear, dos por canal, varios canales por agente, enviar/recibir, long-poll |
 | `test_canales_entrega.py` | que el creador entre solo, y que quien llega lea lo anterior |
 | `test_canales_cuentas.py` | aislamiento del catálogo, borrado real, filtro de rango |
+| `test_archivos.py` | subir con el cliente real y abrir el link, cabeceras (sandbox, referrer), límites y cuota, nombres con ruta, aislamiento y borrado, vencimiento |
 
 ## De punta a punta — necesitan un hub real
 

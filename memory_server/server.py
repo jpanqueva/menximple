@@ -3,9 +3,15 @@
 La cuenta se deriva de la apikey (header X-API-Key) — no se pasa como argumento.
 Las tools envuelven el repositorio y traducen MemoriaError -> ToolError con mensaje
 accionable. Los errores inesperados se propagan (fail-fast, sin silenciar)."""
+import asyncio
+from urllib.parse import quote
+
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from starlette.requests import Request
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
+from . import archivos
 from . import auth
 from . import canales
 from . import repository as repo
@@ -368,6 +374,101 @@ def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     """Da por leído hasta ese `seq`. La usa el puente cuando el mensaje ya entró
     de verdad en la sesión; a mano no hace falta."""
     return _g(canales.confirmar_entrega, canal, agente, hasta)
+
+
+# --- Archivos publicados ---
+#
+# Dos rutas HTTP normales además de las tools, porque los bytes no pueden viajar
+# por una tool: el modelo tendría que escribir el archivo entero en base64 y cada
+# byte le cuesta. Quien sube es un proceso local (`publicar_archivo` del MCP del
+# selector) que lee la ruta del disco y hace el POST.
+#
+# La subida cuelga de /mcp/archivos a propósito: el nginx de producción ya manda
+# todo /Yu4/api/* a /mcp/*, así que no hace falta abrir otra ruta ni inventarle al
+# cliente una URL aparte — es MEMORY_BASE_URL + "/archivos".
+
+@mcp.custom_route("/mcp/archivos", methods=["POST"])
+async def subir_archivo(request: Request) -> JSONResponse:
+    """POST con el archivo como cuerpo crudo. Query: `nombre` (obligatorio),
+    `expira_dias`, `descripcion`. Content-Type = mime del archivo."""
+    try:
+        cta = await asyncio.to_thread(auth.cuenta_de, auth.apikey_de_headers(request.headers))
+    except MemoriaError as e:
+        return JSONResponse({"error": str(e)}, status_code=401)
+
+    maximo = settings.archivos_max_mb * archivos.MB
+    declarado = request.headers.get("content-length")
+    if declarado and declarado.isdigit() and int(declarado) > maximo:
+        return JSONResponse({"error": f"el máximo es {settings.archivos_max_mb} MB"},
+                            status_code=413)
+    # Se cuenta mientras llega y no solo por Content-Length, que lo manda el cliente.
+    trozos, total = [], 0
+    async for trozo in request.stream():
+        total += len(trozo)
+        if total > maximo:
+            return JSONResponse({"error": f"el máximo es {settings.archivos_max_mb} MB"},
+                                status_code=413)
+        trozos.append(trozo)
+
+    q = request.query_params
+    try:
+        expira = float(q["expira_dias"]) if q.get("expira_dias") else None
+    except ValueError:
+        return JSONResponse({"error": "`expira_dias` tiene que ser un número"},
+                            status_code=400)
+    if not q.get("nombre"):
+        return JSONResponse({"error": "falta `nombre` en la query"}, status_code=400)
+    try:
+        out = await asyncio.to_thread(
+            archivos.publicar, cta, q["nombre"], b"".join(trozos),
+            request.headers.get("content-type"), expira, q.get("descripcion"))
+    except MemoriaError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return JSONResponse(out, status_code=201)
+
+
+@mcp.custom_route("/f/{token}", methods=["GET"])
+@mcp.custom_route("/f/{token}/{nombre}", methods=["GET"])
+async def ver_archivo(request: Request):
+    """El link público. Sin apikey: el token es el permiso."""
+    hallado = await asyncio.to_thread(archivos.para_servir, request.path_params["token"])
+    if hallado is None:
+        # Igual para inexistente, borrado y vencido: no se confirma que existió.
+        return PlainTextResponse("no existe o ya no está disponible", status_code=404)
+    a, ruta = hallado
+    cabeceras = {
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(a['nombre'])}",
+        "X-Content-Type-Options": "nosniff",
+        # El token va en la URL: que no se filtre por Referer a donde enlace el archivo.
+        "Referrer-Policy": "no-referrer",
+        "X-Robots-Tag": "noindex, nofollow",
+        "Cache-Control": "private, max-age=60",
+    }
+    if a["mime"] in archivos.ACTIVOS:
+        # Un HTML publicado corre en un origen opaco, no en el del hub: sus scripts
+        # funcionan pero no pueden leer ni llamar nada de menximple.mdtools.io. No
+        # se aplica a todo porque el visor de PDF de Chrome se niega a abrir con
+        # `sandbox`.
+        cabeceras["Content-Security-Policy"] = "sandbox allow-scripts allow-popups"
+    return FileResponse(ruta, media_type=a["mime"], headers=cabeceras)
+
+
+@mcp.tool
+def listar_archivos() -> list[dict]:
+    """Los archivos que ha publicado tu cuenta, con su URL, tamaño y si ya vencieron.
+
+    Para **publicar** uno no es esta: los bytes no pueden viajar por una tool del hub.
+    Usa `publicar_archivo` del servidor local `menximple-selector`, que lee la ruta
+    del disco y lo sube."""
+    return _g(archivos.listar, auth.cuenta_actual())
+
+
+@mcp.tool
+def borrar_archivo(archivo: str) -> dict:
+    """Borra un archivo publicado por su `id` o por su URL. **Esto sí destruye**: el
+    link deja de abrir para todos a quien se lo mandaron y no se puede restaurar.
+    Confírmalo con el usuario."""
+    return _g(archivos.borrar, auth.cuenta_actual(), archivo)
 
 
 # --- Administración de cuentas (protegida por X-Admin-Token) ---

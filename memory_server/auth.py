@@ -23,13 +23,22 @@ def _apikey() -> str | None:
 
 def cuenta_actual() -> str:
     """Devuelve el slug de la cuenta autenticada o lanza MemoriaError."""
-    key = _apikey()
+    return cuenta_de(_apikey())
+
+
+def cuenta_de(key: str | None) -> str:
+    """La cuenta de una apikey. Aparte de `cuenta_actual` porque la subida de
+    archivos es una ruta HTTP normal, no una tool, y trae sus propios headers."""
     if not key:
         raise MemoriaError("falta apikey: envía el header 'X-API-Key' de la cuenta")
     pts = store.scroll(store.CUENTAS, must=[store.cond("apikey", key)], limit=1)
     if not pts:
         raise MemoriaError("apikey inválida")
     return pts[0]["slug"]
+
+
+def apikey_de_headers(headers) -> str | None:
+    return headers.get("x-api-key") or _bearer(headers.get("authorization"))
 
 
 def exigir_admin() -> None:

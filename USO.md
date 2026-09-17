@@ -220,6 +220,14 @@ terceros, guarda solo dónde está el secreto.
 | `cerrar_selector` | la cierra a la fuerza |
 | `cargar_memorias` | carga por id o por número (segundo paso del modo chat) |
 
+**Archivos con link público**
+
+| tool | para qué |
+|---|---|
+| `publicar_archivo` | *(servidor local)* sube un archivo de tu máquina, hasta 20 MB, y devuelve la URL |
+| `listar_archivos` | los que publicó tu cuenta, con tamaño y si vencieron |
+| `borrar_archivo` | por id o URL. **Destruye**: el link muere para todos |
+
 **Admin** (header `X-Admin-Token`): `crear_cuenta`, `listar_cuentas`.
 `crear_cuenta` devuelve la apikey **una sola vez**.
 
@@ -236,6 +244,12 @@ terceros, guarda solo dónde está el secreto.
   quitó: solo se enteraba de las cargas hechas desde la ventana, no de las que
   pedías por chat, así que su ausencia no significaba nada. Mientras no haya una
   forma fiable, la ventana no promete lo que no puede saber.
+- **Un link de archivo lo abre cualquiera que lo tenga**, sin apikey: es para eso.
+  Para pasárselo a otro agente se manda la URL por el canal, nada más.
+- **Publicar va por el servidor local, no por el hub**: el hub no ve tus archivos,
+  y mandarlos por una tool obligaría al modelo a escribirlos en base64.
+- **Borrar un archivo sí destruye**, a diferencia de las memorias, y un link con
+  `expira_dias` vencido sigue contando en la cuota hasta que lo borres.
 - **Claude Code corta las llamadas a tools a los 120 s.** Por eso el selector
   devuelve un token en vez de morirse.
 

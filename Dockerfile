@@ -15,7 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt \
 COPY memory_server ./memory_server
 
 # Usuario no-root + caché de modelos (para persistir por volumen si hay embeddings)
-RUN useradd -m app && mkdir -p /home/app/.cache && chown -R app /home/app /app
+# /data/archivos se crea aquí y con dueño `app`: un volumen nombrado nuevo copia el
+# dueño del directorio de la imagen, y si no existiera nacería de root y la subida
+# fallaría con permiso denegado.
+RUN useradd -m app && mkdir -p /home/app/.cache /data/archivos \
+    && chown -R app /home/app /app /data/archivos
 USER app
 ENV HF_HOME=/home/app/.cache
 

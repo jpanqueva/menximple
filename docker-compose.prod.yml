@@ -26,7 +26,9 @@ services:
       - qdrant
     volumes:
       - hf_cache:/home/app/.cache
+      - archivos_data:/data/archivos        # archivos publicados (los bytes)
 
 volumes:
   qdrant_data:
   hf_cache:
+  archivos_data:

@@ -63,6 +63,11 @@ To let the user pick himself, the **local** MCP `menximple-selector` opens a
 visual selector (`abrir_selector`); without it, show the `arbol()` and take
 numbers. **Before creating folders or reorganizing**, call `listar()` at the
 root — it returns the guide for keeping this tidy.
+
+**Sharing a file** (PDF, report, image, up to 20 MB): `publicar_archivo(ruta)` of
+the local `menximple-selector` uploads it and returns a public URL — anyone with
+it can open it. To hand it to another agent, send that URL through the channel.
+Manage them with `listar_archivos` / `borrar_archivo` (deleting destroys).
 """
 
 

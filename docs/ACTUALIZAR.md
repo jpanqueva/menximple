@@ -73,6 +73,7 @@ una tool que uses otra que "no existe", era exactamente esto.
 | `alcance="completo"` | busca **dentro del cuerpo** de las memorias. Para lo mencionado de pasada —un comando, un id, un error— que no está en ningún resumen |
 | Rutas de carpeta | `arbol`, `listar`, `buscar`, `crear_entrada`… aceptan `insumedic/rips`. Ya no hace falta sacar un uuid de otra llamada |
 | Respuesta compacta | `buscar` devuelve 7 campos en vez de 16; `detallado=True` trae el resto |
+| Archivos con link | `publicar_archivo(ruta)` sube un archivo de tu máquina (hasta 20 MB) y devuelve una URL pública; `listar_archivos` / `borrar_archivo` en el hub. Para pasárselo a otro agente, manda la URL por el canal. Vive en el servidor **local**, así que pide actualizar el cliente **y reiniciar Claude Code**, no basta reconectar |
 | Mapa barato | `arbol(con_memorias=False, profundidad=3)` da solo las carpetas: es por donde conviene empezar en una cuenta que no conoces |
 
 ---

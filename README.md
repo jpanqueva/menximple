@@ -53,11 +53,15 @@ Reconstruye: `docker compose up -d --build`. El modelo se cachea en el volumen `
 Hub: `arbol`, `listar`, `buscar`, `buscar_relacionadas`, `listar_recientes`,
 `obtener_entrada`, `cargar_contexto`, `ver_historial`, `crear_carpeta`,
 `editar_carpeta`, `crear_entrada`, `editar_entrada`, `borrar_entrada`,
-`borrar_carpeta`, `restaurar_entrada`, `restaurar_carpeta`, y (admin)
-`crear_cuenta`, `listar_cuentas`.
+`borrar_carpeta`, `restaurar_entrada`, `restaurar_carpeta`, `listar_archivos`,
+`borrar_archivo`, y (admin) `crear_cuenta`, `listar_cuentas`.
 
 Selector local: `abrir_selector`, `recoger_seleccion`, `cerrar_selector`,
-`cargar_memorias`.
+`cargar_memorias`, `publicar_archivo`.
+
+**Archivos con link público:** `publicar_archivo(ruta)` sube hasta 20 MB y
+devuelve una URL que abre cualquiera que la tenga (`/f/<token>/<nombre>`). Los
+bytes van a disco en el volumen `archivos_data`, no a Qdrant.
 
 Qué hace cada una y cuándo usarla: **[USO.md](USO.md)**.
 

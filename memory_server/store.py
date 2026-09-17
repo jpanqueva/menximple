@@ -25,6 +25,8 @@ ENTRADAS = "entradas"
 # de eso se trata, que dos agentes de máquinas (y cuentas) distintas se hablen.
 CANALES = "canales"
 MENSAJES = "mensajes"
+# Fichas de los archivos publicados. Los bytes van a disco (ver archivos.py).
+ARCHIVOS = "archivos"
 _DUMMY = [0.0]
 
 _client: QdrantClient | None = None
@@ -120,7 +122,7 @@ def ensure_collections() -> None:
             ENTRADAS,
             vectors_config=VectorParams(size=settings.embedding_dims, distance=Distance.COSINE),
         )
-    for col in (CANALES, MENSAJES):
+    for col in (CANALES, MENSAJES, ARCHIVOS):
         if col not in existentes:
             c.create_collection(col, vectors_config=VectorParams(size=1, distance=Distance.COSINE))
 
@@ -145,6 +147,7 @@ def ensure_collections() -> None:
     # `seq` ordena los mensajes de un canal; `entregado_a` dice quién ya lo leyó.
     _idx(MENSAJES, {"canal_id": kw, "de": kw, "seq": PayloadSchemaType.INTEGER,
                     "ts": flt})
+    _idx(ARCHIVOS, {"cuenta": kw, "token": kw, "created_at": flt})
 
 
 def _mismo_indice(info, deseado) -> bool:
