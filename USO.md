@@ -228,6 +228,23 @@ terceros, guarda solo dónde está el secreto.
 | `listar_archivos` | los que publicó tu cuenta, con tamaño y si vencieron |
 | `borrar_archivo` | por id o URL. **Destruye**: el link muere para todos |
 
+**Subir desde algo que no es un agente** (un servidor Node, un script): es el mismo
+POST que hace `publicar_archivo` por dentro.
+
+```
+POST {MEMORY_BASE_URL}/archivos?nombre=reporte.pdf[&expira_dias=7][&descripcion=...]
+X-API-Key: <apikey>
+Content-Type: application/pdf        <- el mime del archivo
+<bytes crudos del archivo>
+```
+
+- **No es multipart.** Un `FormData` se rechaza con 415. Manda el `Buffer` o el
+  stream tal cual.
+- 201 → `{id, nombre, url, mime, tamano, sha256, expira, ...}`. Los errores del hub
+  vienen en JSON `{error}` (400, 401, 413, 415), **pero el 413 que corta nginx
+  antes de llegar al hub viene en HTML**: no des por hecho que la respuesta es JSON.
+- Listar y borrar no tienen REST: son las tools `listar_archivos` / `borrar_archivo`.
+
 **Admin** (header `X-Admin-Token`): `crear_cuenta`, `listar_cuentas`.
 `crear_cuenta` devuelve la apikey **una sola vez**.
 

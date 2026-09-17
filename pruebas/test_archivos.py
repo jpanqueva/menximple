@@ -131,6 +131,12 @@ r = httpx.post(f"{BASE}/mcp/archivos", params={"nombre": "g.bin"},
                content=(b"0" * 65536 for _ in range(20)), headers={"X-API-Key": A})
 chk(r.status_code == 413, f"más del máximo, en trozos sin Content-Length -> {r.status_code}")
 falla_subir("mayor que 0", "expira_dias=0", local("e.txt", b"x"), None, 0, None)
+antes_multipart = len(list(DISCO.iterdir()))
+r = httpx.post(f"{BASE}/mcp/archivos", params={"nombre": "m.png"},
+               files={"archivo": ("m.png", b"\x89PNG datos")}, headers={"X-API-Key": A})
+chk(r.status_code == 415 and "multipart" in r.json()["error"],
+    f"multipart se rechaza en vez de guardarse corrupto -> {r.status_code} {r.text[:80]}")
+chk(len(list(DISCO.iterdir())) == antes_multipart, "y no deja nada en disco")
 
 print("== cuota por cuenta ==")
 subidos, ultimo = 0, ""

@@ -396,6 +396,15 @@ async def subir_archivo(request: Request) -> JSONResponse:
     except MemoriaError as e:
         return JSONResponse({"error": str(e)}, status_code=401)
 
+    # Quien sube desde un <input type=file> arma un FormData por reflejo, y sin este
+    # rechazo se guardaba el cuerpo del form entero con un 201: archivo corrupto y
+    # ningún error. Lo reportó el primer cliente Node que lo usó.
+    if (request.headers.get("content-type") or "").lower().startswith("multipart/"):
+        return JSONResponse({"error": "el cuerpo va con los bytes crudos del archivo, "
+                                      "no multipart/form-data; Content-Type = mime del "
+                                      "archivo y el nombre en la query (?nombre=...)"},
+                            status_code=415)
+
     maximo = settings.archivos_max_mb * archivos.MB
     declarado = request.headers.get("content-length")
     if declarado and declarado.isdigit() and int(declarado) > maximo:
