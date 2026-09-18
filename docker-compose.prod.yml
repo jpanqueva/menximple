@@ -22,6 +22,11 @@ services:
       QDRANT_URL: http://qdrant:6333        # red interna de compose
     ports:
       - "127.0.0.1:${API_PORT}:8000"        # SOLO local; nginx hace de proxy
+    # Techo del api: el servidor es compartido. Van aquí y no con `docker update`
+    # porque lo que se aplica en caliente se pierde en el siguiente --build.
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 512
     depends_on:
       - qdrant
     volumes:
