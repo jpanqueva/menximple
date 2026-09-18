@@ -1,0 +1,7 @@
+# Corre las pruebas herméticas con las MISMAS dependencias que la imagen de
+# producción (requirements.txt fijado), sin tocar el Python de la máquina.
+#   docker build -f pruebas/Dockerfile.pruebas -t menx-pruebas .
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt uvicorn httpx textual

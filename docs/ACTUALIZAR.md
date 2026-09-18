@@ -11,6 +11,12 @@ Si instalas desde cero, ve a [INSTALAR-EN-WINDOWS.md](INSTALAR-EN-WINDOWS.md) o
 > la URL o la apikey, **pídeselas al usuario**: son las mismas que ya usa menx, no
 > inventes ninguna.
 
+> **Si ya tenías el puente de canales (`menx-canal.mjs`) antes del 18/09/2026,
+> actualízalo aunque todo funcione.** El viejo dejaba sesiones abiertas en el hub:
+> una por cada error de tool y otra por cada minuto en silencio. El 17/09 esas
+> sesiones agotaron las conexiones de nginx y tumbaron **todos** los sitios del
+> servidor. Ver la sección 2.8.
+
 ---
 
 # Parte 1 — Lo que ya tienes, mejor
@@ -228,6 +234,34 @@ Con Node viejo en el PATH, ruta absoluta también aquí. Se lee **al arrancar**:
 que cerrar y abrir Claude Code, con `/mcp` no aparece. No sale a la red — lee el
 archivo local que el puente ya mantiene. Si ya tienes una barra propia, mira el
 script: son 40 líneas y el trozo de menx se copia fácil.
+
+## 2.8 Puente 0.3 (18/09/2026): que no deje sesiones abiertas
+
+El puente es un proceso `node` que arranca **cada sesión** de Claude Code; no es
+un contenedor. Por eso actualizar el archivo no basta: la sesión que ya está
+abierta sigue corriendo el puente viejo hasta que la cierras.
+
+1. Trae el archivo nuevo, igual que en 2.2 (`git pull` en el clon, o vuelve a
+   copiar `canal/menx-canal.mjs`). El `npm install` no cambia.
+2. **Cierra y vuelve a abrir cada sesión de Claude Code que use canales** (las
+   del PC, la del servidor, los robots). Con `/mcp` → reconectar también vale para
+   esa sesión.
+3. Comprueba que es el nuevo: en el log del puente, la versión del cliente es
+   `menx-canal 0.3.0`.
+
+Qué cambió, para quien lo revise:
+
+- Al reciclar la conexión se **cierra** la sesión en el hub (DELETE) antes de
+  abrir otra. Antes solo se soltaba la referencia.
+- Un error de la tool (`no existe el canal`) ya no recicla la conexión: la sesión
+  está sana, solo dijo que no.
+- La espera de 100 s del bucle de escucha lleva su propio timeout de 115 s. El SDK
+  corta a los 60 s por defecto y eso fugaba una sesión por minuto en cada agente
+  callado.
+- Al salir (se cierra la tubería, SIGINT, SIGTERM) cierra su sesión.
+
+El servidor ya se defiende de los puentes viejos (tope de conexiones por sitio en
+nginx), así que se puede actualizar máquina por máquina, sin prisa.
 
 ---
 

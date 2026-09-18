@@ -21,6 +21,18 @@ que hay que pasar antes de tocar `memory_server/`.
 | `test_canales_pool.py` | 60 esperas colgadas (más que los 40 hilos del pool) no bloquean una llamada trivial, y siguen entregando. Levanta el hub de verdad: tarda ~2 min |
 | `test_archivos.py` | subir con el cliente real y abrir el link, cabeceras (sandbox, referrer), límites y cuota, nombres con ruta, aislamiento y borrado, vencimiento |
 
+### Con las dependencias de producción
+
+`correr.sh` usa el Python de tu máquina, que puede tener otra versión de FastMCP.
+Para probar con exactamente la de la imagen (`requirements.txt`, fijada):
+
+```bash
+docker build -f pruebas/Dockerfile.pruebas -t menx-pruebas .
+docker network create menx-pruebas-red
+docker run -d --name menx-pruebas-qdrant --network menx-pruebas-red qdrant/qdrant:latest
+docker run --rm --network menx-pruebas-red -v "$PWD:/app" -w /app -e PYTHONPATH=/app   -e QDRANT_URL=http://menx-pruebas-qdrant:6333 menx-pruebas python pruebas/test_canales_pool.py
+```
+
 ## De punta a punta — necesitan un hub real
 
 ```bash
@@ -30,6 +42,7 @@ cd canal && npm install && cd ..
 node pruebas/e2e_identidad.mjs
 node pruebas/e2e_acuse.mjs
 node pruebas/e2e_concurrencia.mjs
+node pruebas/e2e_sesiones.mjs
 ```
 
 Levantan puentes de verdad como procesos aparte —igual que haría Claude Code— y
@@ -42,6 +55,7 @@ hablan con un hub real. Crean canales `e2e-*` y los dejan; bórralos con
 |---|---|
 | `e2e_identidad.mjs` | dos agentes en la misma máquina con identidades distintas, y que ninguno reciba lo suyo propio |
 | `e2e_acuse.mjs` | acuse automático, y que un acuse no se acuse (si no, dos agentes se saludan para siempre) |
+| `e2e_sesiones.mjs` | que el puente no deje sesiones vivas en el hub: ni por errores de tool, ni por esperar en silencio más de 60 s, ni al salir. Pone un proxy que cuenta sesiones abiertas/cerradas. Tarda ~90 s |
 | `e2e_concurrencia.mjs` | llamadas del agente mientras el bucle de escucha está colgado, que es lo que rompía la conexión al hub |
 
 ## Por qué están aquí

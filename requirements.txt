@@ -1,5 +1,7 @@
 # Núcleo (siempre)
-fastmcp>=2.9
+# Fijada: `>=` dejo que un rebuild del 17-sep cambiara 3.4 -> 4.0.4 sin avisar.
+# Subirla es un cambio deliberado, con las pruebas corridas en la version nueva.
+fastmcp==4.0.4
 qdrant-client>=1.9
 pydantic>=2.7
 pydantic-settings>=2.3

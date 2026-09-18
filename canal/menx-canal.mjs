@@ -27,7 +27,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import {
-  ListToolsRequestSchema, CallToolRequestSchema,
+  ListToolsRequestSchema, CallToolRequestSchema, CallToolResultSchema,
+  McpError, ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
@@ -142,34 +143,80 @@ const mcp = new Server(
 // llamadas simultáneas abran dos sesiones contra el hub.
 let conexion = null
 
+// Cerrar una sesión DE VERDAD: DELETE al hub (terminateSession) y después close().
+// Antes, reciclar era solo `conexion = null`: se soltaba la referencia pero la
+// sesión seguía viva en el hub con su flujo SSE abierto, ocupando ranuras de nginx.
+// Con ~20 agentes llegó a haber ~480 flujos y nginx se quedó sin conexiones para
+// TODOS los sitios del servidor (caída del 17/09/2026). Nunca lanza: se usa al
+// reciclar y al salir, donde un error de cierre no debe tapar el original.
+async function soltar(prom) {
+  let c
+  try { c = await prom } catch { return }       // nunca conectó: no hay sesión
+  try { await c.transport?.terminateSession() } catch { /* hub caído: nada que cerrar */ }
+  try { await c.close() } catch { /* ya cerrado */ }
+}
+
 function cliente() {
   if (!conexion) {
     conexion = (async () => {
-      const c = new Client({ name: 'menx-canal', version: '0.2.0' }, { capabilities: {} })
-      await c.connect(new StreamableHTTPClientTransport(new URL(URL_HUB), {
+      const c = new Client({ name: 'menx-canal', version: '0.3.0' }, { capabilities: {} })
+      const t = new StreamableHTTPClientTransport(new URL(URL_HUB), {
         requestInit: { headers: { 'X-API-Key': APIKEY } },
-      }))
+      })
+      try {
+        await c.connect(t)
+      } catch (e) {
+        // El initialize pudo llegar a crear sesión antes de fallar: cerrarla también.
+        try { await t.terminateSession() } catch { /* no había */ }
+        try { await c.close() } catch { /* idem */ }
+        throw e
+      }
       return c
     })()
     // Si falla el connect, que no quede pegada una promesa rota para siempre.
-    conexion.catch(() => { conexion = null })
+    const esta = conexion
+    esta.catch(() => { if (conexion === esta) conexion = null })
   }
   return conexion
 }
 
-async function llamar(tool, args) {
+// ¿Este error significa que la SESIÓN está mal (y hay que abrir otra), o solo que
+// la tool dijo que no? Un "no existe el canal" es respuesta normal del hub por una
+// sesión sana; reciclar por eso abría una sesión nueva en cada error de negocio.
+function sesionRota(e) {
+  if (e?.negocio) return false
+  if (e instanceof McpError) {
+    // El hub contestó por el protocolo: la sesión funciona, salvo estas dos.
+    return e.code === ErrorCode.ConnectionClosed || e.code === ErrorCode.RequestTimeout
+  }
+  return true            // red, 404 "Session not found", 400, respuesta ilegible…
+}
+
+async function llamar(tool, args, { timeoutMs } = {}) {
   const mia = cliente()
   const hub = await mia
   let d
   try {
-    const r = await hub.callTool({ name: tool, arguments: args })
+    // Sin `timeout` el SDK corta a los 60 s. El bucle de escucha pide esperas de
+    // 100 s, así que CADA minuto sin mensajes acababa en RequestTimeout, reciclaba
+    // la sesión sin cerrarla y dejaba el hilo del hub durmiendo 40 s más: una sesión
+    // huérfana por minuto y por agente callado. Era la fuga principal.
+    const r = await hub.callTool({ name: tool, arguments: args }, CallToolResultSchema,
+                                 timeoutMs ? { timeout: timeoutMs } : undefined)
     const txt = r?.content?.find?.((x) => x.type === 'text')?.text
-    if (r?.isError) throw new Error(txt || 'error del hub')
-    d = txt ? JSON.parse(txt) : (r?.structuredContent ?? null)
+    if (r?.isError) throw Object.assign(new Error(txt || 'error del hub'), { negocio: true })
+    try {
+      d = txt ? JSON.parse(txt) : (r?.structuredContent ?? null)
+    } catch {
+      throw Object.assign(new Error(`respuesta ilegible de ${tool}`), { negocio: true })
+    }
   } catch (e) {
-    // Solo tiro la conexión que yo usé: si otra llamada ya la reemplazó, la nueva
-    // está sana y descartarla dejaría a los demás sin nada.
-    if (conexion === mia) conexion = null
+    // Solo reciclo la conexión que yo usé, y solo si está rota: si otra llamada ya
+    // la reemplazó, la nueva está sana y descartarla dejaría a los demás sin nada.
+    if (sesionRota(e) && conexion === mia) {
+      conexion = null
+      soltar(mia)          // en segundo plano: quien llamó recibe su error ya
+    }
     throw e
   }
   // Una tool que devuelve lista llega envuelta como {"result": [...]} — es cómo
@@ -413,7 +460,8 @@ async function escuchar() {
     try {
       // `marcar: false` — nada se da por leído hasta que entre en la sesión.
       const r = await llamar('recibir_de_todos',
-                             { agente: quien, espera: ESPERA, marcar: false })
+                             { agente: quien, espera: ESPERA, marcar: false },
+                             { timeoutMs: (ESPERA + 15) * 1000 })
       fallos = 0
       if (quien !== agente) continue             // se reidentificó mientras esperaba
       // Y otra vez el turno: la espera dura 100 s, tiempo de sobra para que arranque
@@ -487,8 +535,21 @@ async function escuchar() {
 // Morir cuando Claude Code cierra la tubería. Sin esto, cada /mcp deja atrás una
 // instancia viva que sigue consumiendo el buzón y empujando por un stdio que ya
 // nadie lee. Llegamos a tener cuatro puentes a la vez en la misma máquina.
-process.stdin.on('end', () => process.exit(0))
-process.stdin.on('close', () => process.exit(0))
+//
+// Y al morir, cerrar la sesión en el hub. Salir del proceso cierra el socket, pero
+// la sesión del hub no se entera hasta que caduca; el DELETE la libera ya. Con tope
+// de 3 s: si el hub no contesta, más vale salir que quedarse colgado.
+let saliendo = false
+async function salir(codigo = 0) {
+  if (saliendo) return
+  saliendo = true
+  await Promise.race([soltar(conexion), dormir(3)])
+  process.exit(codigo)
+}
+process.stdin.on('end', () => salir(0))
+process.stdin.on('close', () => salir(0))
+process.on('SIGINT', () => salir(0))
+process.on('SIGTERM', () => salir(0))
 
 if (agente) {
   log(`identidad recuperada: "${agente}" — sigo escuchando`)
