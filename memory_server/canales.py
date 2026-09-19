@@ -24,6 +24,9 @@ Dos decisiones que conviene entender antes de tocar esto:
   conversación entre dos tiene un "el otro" sin ambigüedad, así que un mensaje no
   necesita destinatario y "responder" no necesita elegir a quién.
 """
+import functools
+import threading
+
 from . import store
 from .models import MemoriaError
 
@@ -83,6 +86,56 @@ def _con_tags(c: dict, tags: list[str]) -> bool:
         elif t not in suyos:
             return False
     return True
+
+
+# --- Un canal se escribe de a uno ------------------------------------------ #
+# El canal es UN documento (descripción, tags, `seq`, y el `visto` de cada
+# miembro) y todo lo que lo toca hace leer-modificar-guardar del documento
+# ENTERO. Dos operaciones a la vez sobre el mismo canal se pisaban: la segunda en
+# guardar devolvía `seq` a su valor viejo, el siguiente mensaje REPETÍA número, y
+# quien lo esperaba —que pide "lo que tenga seq mayor que el último que vi"— no
+# lo veía nunca. Se perdía en silencio, con el hub diciendo "entregado".
+#
+# Pasó el 2026-09-19, tres veces en una hora: un RESULTADO de un worker y un
+# mensaje de voz al usuario. Los pares que chocaron: `editar_canal` con
+# `enviar_mensaje`, y —el más frecuente, porque ocurre justo al llegar cada
+# mensaje— el long-poll de quien recibe marcando `visto` mientras el que envía
+# todavía no había guardado el `seq` nuevo.
+#
+# El hub es un solo proceso (las tools síncronas van al threadpool), así que un
+# cerrojo en memoria por canal basta. Todo el que escribe el canal lo toma y
+# RELEE el documento ya dentro. Si algún día hay varios procesos, esto no alcanza:
+# haría falta que `seq` y `visto` dejen de vivir en el mismo documento.
+_CERROJOS: dict[str, threading.Lock] = {}
+_CERROJOS_G = threading.Lock()
+
+
+def _cerrojo(canal: str) -> threading.Lock:
+    clave = (canal or "").strip().lower()
+    with _CERROJOS_G:
+        return _CERROJOS.setdefault(clave, threading.Lock())
+
+
+def _de_a_uno(f):
+    """La función entera corre con el cerrojo del canal (su primer argumento)."""
+    @functools.wraps(f)
+    def envuelta(canal, *a, **k):
+        with _cerrojo(canal):
+            return f(canal, *a, **k)
+    return envuelta
+
+
+def _marcar_visto(canal: str, agente: str, hasta: int) -> None:
+    """Avanza el `visto` de un miembro, releyendo el canal dentro del cerrojo."""
+    with _cerrojo(canal):
+        c = _canal(canal)
+        cambio = False
+        for x in c.get("miembros", []):
+            if x["agente"] == agente and hasta > x.get("visto", 0):
+                x["visto"] = hasta
+                cambio = True
+        if cambio:
+            store.upsert(store.CANALES, c["_id"], c)
 
 
 def _canal(nombre: str) -> dict:
@@ -155,6 +208,7 @@ def crear_canal(nombre: str, descripcion: str | None = None,
     return _out(payload)
 
 
+@_de_a_uno
 def editar_canal(canal: str, descripcion: str | None = None, tags=None,
                  cta: str | None = None) -> dict:
     """Cambia la descripción y/o los tags de un canal que ya existe. Lo que venga
@@ -197,6 +251,7 @@ def listar_canales(cta: str | None = None, tags=None) -> list[dict]:
     return [_out(c) for c in cs]
 
 
+@_de_a_uno
 def borrar_canal(canal: str, cta: str | None = None) -> dict:
     """Borra el canal y sus mensajes. **Esto sí destruye**, a diferencia del resto
     de menx: un canal es tráfico, no conocimiento, y lo que hace falta de verdad es
@@ -213,6 +268,7 @@ def borrar_canal(canal: str, cta: str | None = None) -> dict:
             "agentes_que_estaban": [m["agente"] for m in c.get("miembros", [])]}
 
 
+@_de_a_uno
 def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
     c = _canal(canal)
     agente = _agente(agente)
@@ -257,6 +313,7 @@ def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
     return out
 
 
+@_de_a_uno
 def salir_canal(canal: str, agente: str) -> dict:
     c = _canal(canal)
     agente = _agente(agente)
@@ -267,6 +324,7 @@ def salir_canal(canal: str, agente: str) -> dict:
     return _out(c)
 
 
+@_de_a_uno
 def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> dict:
     """Escribe en el canal. `acuse=True` marca el mensaje como acuse de recibo.
 
@@ -281,7 +339,14 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
     agente = _agente(agente)
     _miembro(c, agente)
 
-    seq = c.get("seq", 0) + 1
+    # El contador del canal manda, pero se comprueba contra los mensajes que ya
+    # existen: si alguna vez quedó atrasado (ver `_cerrojo`), no se repite número y
+    # de paso se corrige solo. La consulta trae "los de seq mayor", que es ninguno.
+    seq = c.get("seq", 0)
+    adelantados = store.scroll(store.MENSAJES,
+                               must=[store.cond("canal_id", c["_id"]),
+                                     store.cond_mayor("seq", seq)], limit=500)
+    seq = max([seq] + [m.get("seq", 0) for m in adelantados]) + 1
     ts = store.now_ts()
     # Un solo id: el del punto y el del payload TIENEN que ser el mismo. Estaban
     # saliendo de dos llamadas distintas, así que `_id` no apuntaba a nada y borrar
@@ -333,6 +398,7 @@ def mis_canales(agente: str, tags=None) -> list[dict]:
     return [_out(c) for c in _canales_de(_agente(agente)) if _con_tags(c, pedidos)]
 
 
+@_de_a_uno
 def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     """Marca como leído hasta `hasta`. Va aparte de `recibir_todo` a propósito.
 
@@ -375,10 +441,7 @@ def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
             visto = next(m.get("visto", 0) for m in c["miembros"] if m["agente"] == agente)
             msgs, hasta = _pendientes(c, visto, agente)
             if marcar and hasta > visto:
-                for x in c["miembros"]:
-                    if x["agente"] == agente:
-                        x["visto"] = hasta
-                store.upsert(store.CANALES, c["_id"], c)
+                _marcar_visto(c["nombre"], agente, hasta)
             if msgs:
                 salida.append({
                     # Los tags viajan con la entrega para que el puente los ponga
@@ -417,10 +480,7 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
         c = _canal(canal)          # releer: el otro pudo escribir mientras dormíamos
 
     if marcar and hasta > desde:
-        for x in c.get("miembros", []):
-            if x["agente"] == agente:
-                x["visto"] = hasta
-        store.upsert(store.CANALES, c["_id"], c)
+        _marcar_visto(c["nombre"], agente, hasta)
 
     return {
         "canal": c["nombre"], "tags": c.get("tags") or [],
