@@ -18,6 +18,7 @@ que hay que pasar antes de tocar `memory_server/`.
 | `test_canales.py` | crear, dos por canal, varios canales por agente, enviar/recibir, long-poll |
 | `test_canales_entrega.py` | que el creador entre solo, y que quien llega lea lo anterior |
 | `test_canales_cuentas.py` | aislamiento del catálogo, borrado real, filtro de rango |
+| `test_canales_tags.py` | tags de canal: normalización y topes, filtro exacto y por prefijo, `editar_canal` (reemplaza, no suma; solo el dueño), y que viajen con `recibir_todo` sin tocar los canales que no tienen |
 | `test_canales_pool.py` | 60 esperas colgadas (más que los 40 hilos del pool) no bloquean una llamada trivial, y siguen entregando. Levanta el hub de verdad: tarda ~2 min |
 | `test_archivos.py` | subir con el cliente real y abrir el link, cabeceras (sandbox, referrer), límites y cuota, nombres con ruta, aislamiento y borrado, vencimiento |
 
@@ -56,6 +57,7 @@ hablan con un hub real. Crean canales `e2e-*` y los dejan; bórralos con
 | `e2e_identidad.mjs` | dos agentes en la misma máquina con identidades distintas, y que ninguno reciba lo suyo propio |
 | `e2e_acuse.mjs` | acuse automático, y que un acuse no se acuse (si no, dos agentes se saludan para siempre) |
 | `e2e_sesiones.mjs` | que el puente no deje sesiones vivas en el hub: ni por errores de tool, ni por esperar en silencio más de 60 s, ni al salir. Pone un proxy que cuenta sesiones abiertas/cerradas. Tarda ~90 s |
+| `e2e_tags.mjs` | que los tags lleguen DENTRO del evento `<channel tags="…">`, que un canal sin tags siga igual, `canal_etiquetar`, y que `sin-acuse` apague el acuse solo en ese canal |
 | `e2e_concurrencia.mjs` | llamadas del agente mientras el bucle de escucha está colgado, que es lo que rompía la conexión al hub |
 
 ## Por qué están aquí

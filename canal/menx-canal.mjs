@@ -106,7 +106,7 @@ if (!URL_HUB || !APIKEY) {
 }
 
 const mcp = new Server(
-  { name: 'menx-canal', version: '0.2.0' },
+  { name: 'menx-canal', version: '0.4.0' },
   {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
@@ -128,7 +128,17 @@ const mcp = new Server(
       'solo, así que no lo repitas.\n' +
       'Lo que sí depende de ti: si el encargo va a tardar, manda un avance por ' +
       '`canal_enviar` en vez de callarte hasta el final — del otro lado hay ' +
-      'alguien esperando que no ve lo que estás haciendo.',
+      'alguien esperando que no ve lo que estás haciendo.\n' +
+      'TAGS: un canal puede llevar tags que dicen QUÉ ES, y llegan en cada ' +
+      'mensaje como atributo tags="a,b" del tag <channel>. Léelos antes de ' +
+      'contestar: `tipo:voz` = lo que escribas se le LEE EN VOZ ALTA a una ' +
+      'persona (frases cortas, sin tablas ni rutas); `tipo:pantalla` = se VE, va ' +
+      'en Markdown; `tipo:avisos` = te habla un proceso automático, no le ' +
+      'contestes; `tipo:devops` = órdenes exactas a un proceso; `tipo:worker` = ' +
+      'conversación con un agente que trabaja para ti; `proyecto:<x>` = de qué ' +
+      'proyecto es; `efimero` = se borra al terminar; `sin-acuse` = ahí no se ' +
+      'mandan acuses. Un canal sin tags es una conversación normal entre agentes. ' +
+      'Para ponerlos: `canal_crear` con `tags`, o `canal_etiquetar`.',
   },
 )
 
@@ -159,7 +169,7 @@ async function soltar(prom) {
 function cliente() {
   if (!conexion) {
     conexion = (async () => {
-      const c = new Client({ name: 'menx-canal', version: '0.3.0' }, { capabilities: {} })
+      const c = new Client({ name: 'menx-canal', version: '0.4.0' }, { capabilities: {} })
       const t = new StreamableHTTPClientTransport(new URL(URL_HUB), {
         requestInit: { headers: { 'X-API-Key': APIKEY } },
       })
@@ -251,10 +261,30 @@ const TOOLS = [
     name: 'canal_crear',
     description:
       'Crea un canal y te mete dentro con tu identidad, listo para escribir. ' +
-      'Mira antes `listar_canales` por si ya existe uno que sirva.',
+      'Mira antes `listar_canales` por si ya existe uno que sirva. `tags` ' +
+      '(opcional) dice qué es el canal: proyecto:<x>, tipo:<voz|pantalla|avisos|' +
+      'devops|worker>, efimero, sin-acuse.',
     inputSchema: {
       type: 'object',
-      properties: { canal: { type: 'string' }, descripcion: { type: 'string' } },
+      properties: {
+        canal: { type: 'string' }, descripcion: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['canal'],
+    },
+  },
+  {
+    name: 'canal_etiquetar',
+    description:
+      'Cambia los tags (y/o la descripción) de un canal en el que estás. Los ' +
+      'tags REEMPLAZAN a los anteriores; [] los quita todos. Lo que no pases no ' +
+      'se toca.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        canal: { type: 'string' }, descripcion: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
       required: ['canal'],
     },
   },
@@ -341,8 +371,22 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
 
     if (req.params.name === 'canal_crear') {
-      return ok(await llamar('crear_canal',
-                             { nombre: a.canal, descripcion: a.descripcion ?? null, agente }))
+      // `tags` solo se manda si vino: un hub anterior a los tags rechaza el
+      // argumento desconocido, y así el puente nuevo sigue sirviendo con él.
+      return ok(await llamar('crear_canal', {
+        nombre: a.canal, descripcion: a.descripcion ?? null, agente,
+        ...(Array.isArray(a.tags) && a.tags.length ? { tags: a.tags } : {}),
+      }))
+    }
+    if (req.params.name === 'canal_etiquetar') {
+      if (a.tags === undefined && a.descripcion === undefined) {
+        return mal('pasa `tags`, `descripcion` o ambos')
+      }
+      return ok(await llamar('editar_canal', {
+        canal: a.canal,
+        ...(a.descripcion !== undefined ? { descripcion: a.descripcion } : {}),
+        ...(Array.isArray(a.tags) ? { tags: a.tags } : {}),
+      }))
     }
     if (req.params.name === 'canal_unirse') {
       const r = await llamar('unirse_canal', { canal: a.canal, agente })
@@ -487,6 +531,9 @@ async function escuchar() {
               meta: {
                 canal: c.canal, de: m.de, seq: String(m.seq),
                 ...(m.acuse ? { tipo: 'acuse' } : {}),
+                // Qué ES este canal (voz, pantalla, avisos…): viaja con el
+                // mensaje para que el agente no dependa de recordarlo.
+                ...(c.tags?.length ? { tags: c.tags.join(',') } : {}),
               },
             },
           })
@@ -508,7 +555,10 @@ async function escuchar() {
         // llegó mientras estaba ocupado: acusar cada uno devolvía dos acuses
         // idénticos por una sola entrega. Y un acuse NO se acusa, o serían dos
         // agentes saludándose para siempre.
-        if (porAcusar) {
+        //
+        // Salvo en canales marcados `sin-acuse`: al otro lado hay un proceso que
+        // no los lee (un monitor, un DevOps) y el acuse solo ensucia el canal.
+        if (porAcusar && !(c.tags ?? []).includes('sin-acuse')) {
           const cuantos = porAcusar === 1 ? 'recibido' : `recibidos ${porAcusar} mensajes`
           try {
             await llamar('enviar_mensaje', {

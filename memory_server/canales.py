@@ -30,6 +30,59 @@ from .models import MemoriaError
 CUPOS = 2
 ESPERA_MAX = 110      # Claude Code corta las tools a los 120 s; ver `recibir`.
 RETROCESO = 20        # cuánto historial ve quien entra; ver `unirse_canal`.
+TAGS_MAX = 8          # por canal
+TAG_LARGO = 40
+
+
+# --- Tags ------------------------------------------------------------------ #
+# Un canal puede llevar tags: texto corto que dice QUÉ ES el canal, para que el
+# agente que recibe un mensaje sepa cómo tratarlo sin tener la regla escrita en
+# otro lado. NO sirven para descubrir canales (eso ya lo hace la membresía:
+# `mis_canales` y `recibir_todo` van por agente), sino para darles significado y
+# para filtrar el catálogo por proyecto.
+#
+# Son texto libre, pero conviene un vocabulario corto y compartido:
+#   proyecto:<nombre>   a qué proyecto pertenece        (proyecto:sagente)
+#   tipo:<clase>        qué clase de canal es           (tipo:voz, tipo:pantalla,
+#                                                        tipo:avisos, tipo:devops,
+#                                                        tipo:worker)
+#   efimero             se puede borrar al terminar
+#   sin-acuse           el puente NO manda acuse automático (al otro lado hay un
+#                       proceso que no los lee, o el acuse solo hace ruido)
+
+def _norm_tags(tags) -> list[str]:
+    """Normaliza: minúsculas, sin espacios alrededor, sin repetidos, con tope."""
+    if tags is None:
+        return []
+    if isinstance(tags, str):                    # "a, b" también vale
+        tags = tags.split(",")
+    salida: list[str] = []
+    for t in tags:
+        t = " ".join(str(t or "").strip().lower().split())
+        if not t or t in salida:
+            continue
+        if len(t) > TAG_LARGO:
+            raise MemoriaError(f"el tag '{t[:20]}…' pasa de {TAG_LARGO} caracteres")
+        if "," in t:
+            raise MemoriaError(f"un tag no puede llevar coma: '{t}'")
+        salida.append(t)
+    if len(salida) > TAGS_MAX:
+        raise MemoriaError(f"un canal admite máximo {TAGS_MAX} tags")
+    return salida
+
+
+def _con_tags(c: dict, tags: list[str]) -> bool:
+    """¿El canal tiene TODOS los tags pedidos? Un tag que acaba en ':' o en '*'
+    casa por prefijo: `proyecto:` encuentra cualquier proyecto."""
+    suyos = c.get("tags") or []
+    for t in tags:
+        if t.endswith(":") or t.endswith("*"):
+            pref = t.rstrip("*")
+            if not any(s.startswith(pref) for s in suyos):
+                return False
+        elif t not in suyos:
+            return False
+    return True
 
 
 def _canal(nombre: str) -> dict:
@@ -61,6 +114,7 @@ def _miembro(c: dict, agente: str) -> dict:
 def _out(c: dict) -> dict:
     return {
         "nombre": c["nombre"], "descripcion": c.get("descripcion"),
+        "tags": c.get("tags") or [],
         "agentes": [m["agente"] for m in c.get("miembros", [])],
         "cupos_libres": CUPOS - len(c.get("miembros", [])),
         "mensajes": c.get("seq", 0),
@@ -78,7 +132,8 @@ def _mia(c: dict, cta: str | None) -> bool:
 
 
 def crear_canal(nombre: str, descripcion: str | None = None,
-                agente: str | None = None, cta: str | None = None) -> dict:
+                agente: str | None = None, cta: str | None = None,
+                tags=None) -> dict:
     """Crea el canal y, si le pasas `agente`, te mete dentro.
 
     Lo segundo no es un atajo: quien crea un canal es porque va a hablar en él, y
@@ -87,11 +142,12 @@ def crear_canal(nombre: str, descripcion: str | None = None,
     nombre = (nombre or "").strip().lower()
     if not nombre:
         raise MemoriaError("falta el nombre del canal")
+    tags = _norm_tags(tags)                      # antes de crear nada: si están mal, no se crea
     if store.scroll(store.CANALES, must=[store.cond("nombre", nombre)], limit=1):
         raise MemoriaError(f"ya existe un canal '{nombre}'")
     ts = store.now_ts()
     payload = {"_id": store.nuevo_id(), "nombre": nombre, "descripcion": descripcion,
-               "cuenta": cta, "miembros": [], "seq": 0,
+               "cuenta": cta, "miembros": [], "seq": 0, "tags": tags,
                "created_at": ts, "updated_at": ts}
     store.upsert(store.CANALES, payload["_id"], payload)
     if agente:
@@ -99,7 +155,29 @@ def crear_canal(nombre: str, descripcion: str | None = None,
     return _out(payload)
 
 
-def listar_canales(cta: str | None = None) -> list[dict]:
+def editar_canal(canal: str, descripcion: str | None = None, tags=None,
+                 cta: str | None = None) -> dict:
+    """Cambia la descripción y/o los tags de un canal que ya existe. Lo que venga
+    en `None` no se toca; `tags=[]` los quita todos. Los tags REEMPLAZAN a los que
+    había (no se suman): así lo que queda es exactamente lo que se pasó.
+
+    Solo puede quien lo creó o quien está dentro, igual que borrarlo."""
+    c = _canal(canal)
+    if not _mia(c, cta):
+        raise MemoriaError(f"'{c['nombre']}' no es un canal tuyo; solo puede editarlo "
+                           "quien lo creó o quien está dentro")
+    if descripcion is None and tags is None:
+        raise MemoriaError("no hay nada que cambiar: pasa `descripcion`, `tags` o ambos")
+    if descripcion is not None:
+        c["descripcion"] = descripcion
+    if tags is not None:
+        c["tags"] = _norm_tags(tags)
+    c["updated_at"] = store.now_ts()
+    store.upsert(store.CANALES, c["_id"], c)
+    return _out(c)
+
+
+def listar_canales(cta: str | None = None, tags=None) -> list[dict]:
     """Los canales de esta cuenta: los que creó y en los que está.
 
     NO los lista todos. Los canales cruzan cuentas a propósito —ese es el sentido—
@@ -109,8 +187,12 @@ def listar_canales(cta: str | None = None) -> list[dict]:
 
     Entrar a un canal de otra cuenta sigue siendo posible: `unirse_canal` acepta el
     nombre exacto aunque no salga aquí. Se comparte como un enlace de reunión — te lo
-    pasan, no lo encuentras."""
-    cs = [c for c in store.scroll(store.CANALES, limit=500) if _mia(c, cta)]
+    pasan, no lo encuentras.
+
+    `tags` filtra: solo los canales que tengan TODOS los pedidos (ver `_con_tags`)."""
+    pedidos = _norm_tags(tags)
+    cs = [c for c in store.scroll(store.CANALES, limit=500)
+          if _mia(c, cta) and _con_tags(c, pedidos)]
     cs.sort(key=lambda c: c.get("nombre", ""))
     return [_out(c) for c in cs]
 
@@ -244,10 +326,11 @@ def _canales_de(agente: str) -> list[dict]:
             if any(m["agente"] == agente for m in c.get("miembros", []))]
 
 
-def mis_canales(agente: str) -> list[dict]:
+def mis_canales(agente: str, tags=None) -> list[dict]:
     """En qué canales está este agente. Puede estar en varios a la vez: el límite
-    de dos es por canal, no por agente."""
-    return [_out(c) for c in _canales_de(_agente(agente))]
+    de dos es por canal, no por agente. `tags` filtra igual que en `listar_canales`."""
+    pedidos = _norm_tags(tags)
+    return [_out(c) for c in _canales_de(_agente(agente)) if _con_tags(c, pedidos)]
 
 
 def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
@@ -298,7 +381,9 @@ def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
                 store.upsert(store.CANALES, c["_id"], c)
             if msgs:
                 salida.append({
-                    "canal": c["nombre"], "hasta": hasta,
+                    # Los tags viajan con la entrega para que el puente los ponga
+                    # en el evento sin tener que preguntar por cada canal.
+                    "canal": c["nombre"], "tags": c.get("tags") or [], "hasta": hasta,
                     "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
                                   "acuse": bool(x.get("acuse")),
                                   "cuando": store.iso(x["ts"])} for x in msgs],
@@ -338,7 +423,7 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
         store.upsert(store.CANALES, c["_id"], c)
 
     return {
-        "canal": c["nombre"],
+        "canal": c["nombre"], "tags": c.get("tags") or [],
         "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
                       "acuse": bool(x.get("acuse")),
                       "cuando": store.iso(x["ts"])} for x in msgs],

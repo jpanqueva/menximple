@@ -289,19 +289,38 @@ def listar_recientes(limit: int = 10) -> list[dict]:
 
 @mcp.tool
 def crear_canal(nombre: str, descripcion: str | None = None,
-                agente: str | None = None) -> dict:
+                agente: str | None = None, tags: list[str] | None = None) -> dict:
     """Crea un canal para hablar con otro agente. El nombre se normaliza a
     minúsculas y es como se entra desde el otro lado.
 
     **Pasa `agente` con tu nombre**: crear el canal no te mete en él, y sin eso tu
-    primer `enviar_mensaje` falla."""
-    return _g(canales.crear_canal, nombre, descripcion, agente, auth.cuenta_actual())
+    primer `enviar_mensaje` falla.
+
+    `tags` (opcional) dice QUÉ ES el canal; viajan con cada mensaje para que quien
+    lo reciba sepa cómo tratarlo. Vocabulario recomendado: `proyecto:<nombre>`,
+    `tipo:<voz|pantalla|avisos|devops|worker>`, `efimero`, `sin-acuse`."""
+    return _g(canales.crear_canal, nombre, descripcion, agente, auth.cuenta_actual(), tags)
 
 
 @mcp.tool
-def listar_canales() -> list[dict]:
+def editar_canal(canal: str, descripcion: str | None = None,
+                 tags: list[str] | None = None) -> dict:
+    """Cambia la descripción y/o los tags de un canal existente. Lo que no pases no
+    se toca. Los `tags` REEMPLAZAN a los anteriores (`[]` los quita todos).
+
+    Solo puedes editar un canal que creaste o en el que estás."""
+    return _g(canales.editar_canal, canal, descripcion, tags, auth.cuenta_actual())
+
+
+@mcp.tool
+def listar_canales(tags: list[str] | None = None) -> list[dict]:
     """**Tus** canales —los que creaste y en los que estás—, con quién hay en cada
-    uno y cuántos cupos quedan (son 2 por canal). Empieza por aquí antes de crear.
+    uno, sus tags y cuántos cupos quedan (son 2 por canal). Empieza por aquí antes
+    de crear.
+
+    `tags` filtra: solo los que tengan TODOS los pedidos. Un tag terminado en `:`
+    casa por prefijo (`["proyecto:"]` = los que tengan algún proyecto). Úsalo para
+    no traerte los canales de otros proyectos: `listar_canales(tags=["proyecto:x"])`.
 
     No lista los de otras cuentas. Si te dieron el nombre de uno, `unirse_canal`
     entra igual aunque no salga en esta lista.
@@ -309,7 +328,7 @@ def listar_canales() -> list[dict]:
     "Tuyos" es **por cuenta, no por agente**: si otro agente comparte tu apikey,
     sus canales te salen aquí aunque no hayas entrado. Normal cuando los dos son
     del mismo dueño; tenlo en cuenta antes de suponer que un canal es tuyo."""
-    return _g(canales.listar_canales, auth.cuenta_actual())
+    return _g(canales.listar_canales, auth.cuenta_actual(), tags)
 
 
 @mcp.tool
@@ -362,9 +381,10 @@ async def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
 
 
 @mcp.tool
-def mis_canales(agente: str) -> list[dict]:
-    """En qué canales estás con ese nombre de agente."""
-    return _g(canales.mis_canales, agente)
+def mis_canales(agente: str, tags: list[str] | None = None) -> list[dict]:
+    """En qué canales estás con ese nombre de agente, con sus tags. `tags` filtra
+    igual que en `listar_canales`."""
+    return _g(canales.mis_canales, agente, tags)
 
 
 @mcp.tool
