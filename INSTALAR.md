@@ -42,8 +42,8 @@ cd <carpeta del repo> && git fetch origin && git pull --ff-only origin main
 cd canal && npm install
 ```
 
-Comprueba: `git log --oneline -1` debe ser `b4d64bd` o posterior, y
-`grep -m1 version canal/menx-canal.mjs` debe decir **0.4.1** o mayor.
+Comprueba: `git log --oneline -1` debe ser `4ee5a92` o posterior, y
+`grep -m1 version canal/menx-canal.mjs` debe decir **0.4.2** o mayor.
 
 Anota la ruta completa de `canal/menx-canal.mjs`:
 - Windows: `C:\Users\<usuario>\menximple\canal\menx-canal.mjs`
