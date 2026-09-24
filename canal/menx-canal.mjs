@@ -37,6 +37,24 @@ import { join } from 'node:path'
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
+const VERSION = '0.4.2'
+
+// Estado del hub visto desde este puente, para la barra de estado: versión que
+// declaró al conectar, último sondeo bueno y el último error. Se escribe en el
+// mismo archivo de identidades, junto a la versión de ESTE proceso: así la barra
+// puede decir "el puente que corre es viejo" comparándola con la del disco.
+const hubEstado = { version: null, ok: 0, error: null }
+let ultimoRegistro = 0
+function anotarHub(ok, err = null) {
+  const antes = hubEstado.error
+  if (ok) { hubEstado.ok = Date.now(); hubEstado.error = null }
+  else hubEstado.error = String(err?.message ?? err).slice(0, 80)
+  // Solo se escribe cuando cambia el estado o cada 5 min: la barra no necesita más.
+  if ((antes === null) !== (hubEstado.error === null) || Date.now() - ultimoRegistro > 300000) {
+    ultimoRegistro = Date.now()
+    if (agente) recordar(agente)
+  }
+}
 const log = (m) => process.stderr.write(`[menx-canal] ${m}\n`)
 
 // --- identidad que sobrevive a un /mcp ------------------------------------- //
@@ -70,6 +88,7 @@ function recordar(nombre, canales = null) {
     todas[SESION] = {
       agente: nombre, ts: Date.now(), cwd: process.cwd(),
       canales: canales ?? todas[SESION]?.canales ?? [],
+      version: VERSION, pid: process.pid, hub: { ...hubEstado },
     }
     // Podar lo viejo: sin esto el archivo crece con cada conversación, para siempre.
     const mes = Date.now() - 30 * 24 * 3600 * 1000
@@ -106,7 +125,7 @@ if (!URL_HUB || !APIKEY) {
 }
 
 const mcp = new Server(
-  { name: 'menx-canal', version: '0.4.1' },
+  { name: 'menx-canal', version: VERSION },
   {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
@@ -169,12 +188,13 @@ async function soltar(prom) {
 function cliente() {
   if (!conexion) {
     conexion = (async () => {
-      const c = new Client({ name: 'menx-canal', version: '0.4.1' }, { capabilities: {} })
+      const c = new Client({ name: 'menx-canal', version: VERSION }, { capabilities: {} })
       const t = new StreamableHTTPClientTransport(new URL(URL_HUB), {
         requestInit: { headers: { 'X-API-Key': APIKEY } },
       })
       try {
         await c.connect(t)
+        hubEstado.version = c.getServerVersion?.()?.version ?? hubEstado.version
       } catch (e) {
         // El initialize pudo llegar a crear sesión antes de fallar: cerrarla también.
         try { await t.terminateSession() } catch { /* no había */ }
@@ -237,6 +257,7 @@ async function llamarUnaVez(tool, args, { timeoutMs } = {}) {
     // huérfana por minuto y por agente callado. Era la fuga principal.
     const r = await hub.callTool({ name: tool, arguments: args }, CallToolResultSchema,
                                  timeoutMs ? { timeout: timeoutMs } : undefined)
+    hubEstado.ok = Date.now(); hubEstado.error = null     // el hub contestó: está vivo
     const txt = r?.content?.find?.((x) => x.type === 'text')?.text
     if (r?.isError) throw Object.assign(new Error(txt || 'error del hub'), { negocio: true })
     try {
@@ -531,11 +552,16 @@ async function escuchar() {
                              { agente: quien, espera: ESPERA, marcar: false },
                              { timeoutMs: (ESPERA + 15) * 1000 })
       fallos = 0
+      anotarHub(true)
       if (quien !== agente) continue             // se reidentificó mientras esperaba
       // Y otra vez el turno: la espera dura 100 s, tiempo de sobra para que arranque
       // una instancia nueva. Comprobar solo antes de pedir deja abierta justo la
       // ventana en la que llega el mensaje.
       if (!miTurno(quien)) { await dormir(2); continue }
+      if (r?.canales?.length) {
+        llamar('mis_canales', { agente: quien })
+          .then((cs) => recordar(quien, cs.map((x) => x.nombre))).catch(() => {})
+      }
       for (const c of r?.canales ?? []) {
         const ya = empujado.get(c.canal) ?? 0
         const nuevos = (c.mensajes ?? []).filter((m) => m.seq > ya)
@@ -600,6 +626,7 @@ async function escuchar() {
       // Backoff hasta 30 s: si el hub está caído, insistir cada segundo no lo
       // levanta y llena el log de la sesión.
       const pausa = Math.min(30, 2 ** Math.min(fallos, 4))
+      anotarHub(false, e)
       log(`error escuchando (${e?.message ?? e}); reintento en ${pausa}s`)
       await dormir(pausa)
     }

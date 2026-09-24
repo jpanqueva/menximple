@@ -17,9 +17,59 @@
  * Instalar en ~/.claude/settings.json:
  *   "statusLine": { "type": "command", "command": "node RUTA/statusline-menx.mjs" }
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// --- versiones: ¿esta consola corre lo que hay en el disco? --------------- //
+//
+// Cada máquina tiene su copia del puente, y una copia vieja fugaba conexiones
+// durante días sin que nadie lo viera (Azure y el PC de Transfiriendo, sep-2026).
+// La barra compara la versión del puente QUE CORRE (la escribe el proceso en el
+// archivo de identidades) con la del archivo en disco (que `git pull` actualiza):
+// si difieren, hay que reiniciar Claude Code; si no hay versión, el puente es
+// anterior a esto y hay que actualizar el repo.
+const AQUI = dirname(fileURLToPath(import.meta.url))
+function versionEnDisco() {
+  try {
+    const m = /const VERSION = '([^']+)'/.exec(readFileSync(join(AQUI, 'menx-canal.mjs'), 'utf8'))
+    return m?.[1] ?? null
+  } catch { return null }
+}
+// El selector se instala con pip/pipx: la versión está en su dist-info. Se
+// buscan los sitios habituales sin ejecutar nada (la barra corre a cada rato).
+function versionSelector() {
+  const home = homedir()
+  const candidatos = [
+    join(home, '.local', 'pipx', 'venvs', 'menximple', 'Lib', 'site-packages'),
+    join(process.env.LOCALAPPDATA || '', 'pipx', 'venvs', 'menximple', 'Lib', 'site-packages'),
+    join(process.env.LOCALAPPDATA || '', 'Programs', 'Python'),
+    join(home, '.local', 'lib'),
+    '/usr/local/lib', '/usr/lib',
+  ]
+  const vistos = new Set()
+  const busca = (dir, prof) => {
+    if (prof < 0 || !dir || vistos.has(dir) || !existsSync(dir)) return null
+    vistos.add(dir)
+    let hijos = []
+    try { hijos = readdirSync(dir, { withFileTypes: true }) } catch { return null }
+    for (const h of hijos) {
+      if (!h.isDirectory()) continue
+      const m = /^menximple-([0-9][^-]*)\.dist-info$/i.exec(h.name)
+      if (m) return m[1]
+    }
+    for (const h of hijos) {
+      if (!h.isDirectory()) continue
+      if (/^(python3?\.?[0-9]*|Python[0-9]+|site-packages|Lib|lib|venvs|menximple)$/i.test(h.name)) {
+        const v = busca(join(dir, h.name), prof - 1); if (v) return v
+      }
+    }
+    return null
+  }
+  for (const c of candidatos) { const v = busca(c, 4); if (v) return v }
+  return null
+}
 
 const DIR = process.env.MENX_CANAL_DIR || join(homedir(), '.menx-canal')
 const ARCHIVO = join(DIR, 'identidades.json')
@@ -41,6 +91,7 @@ process.stdin.on('end', () => {
   } catch { /* sin json utilizable: se pinta lo que se pueda */ }
 
   let menx = 'menx: sin identidad'
+  let versiones = ''
   try {
     const todas = JSON.parse(readFileSync(ARCHIVO, 'utf8'))
     // Primero por sesión; si no, la más reciente de ESTA carpeta.
@@ -73,6 +124,26 @@ process.stdin.on('end', () => {
         `menx: SIN ESCUCHAR (identifícate como ${d.agente})`].filter(Boolean).join('  |  '))
       return
     }
+    if (d) {
+      // Los tres MCP, con su versión, y si el puente que corre es el del disco.
+      const disco = versionEnDisco()
+      let puente
+      // Sin versión en el registro: el puente que corre es anterior a esto. Si el
+      // disco ya tiene la nueva, solo falta reiniciar; si tampoco, actualizar el repo.
+      let hub = null
+      if (!d.version) puente = disco ? `canal ✗ REINICIA Claude Code (en disco ${disco})` : 'canal ✗ ACTUALIZA el repo'
+      else if (disco && disco !== d.version) puente = `canal ${d.version} ✗ REINICIA Claude Code (en disco ${disco})`
+      else puente = `canal ${d.version} ✓`
+      if (d.version) {
+        const h = d.hub ?? {}
+        const hace = h.ok ? (Date.now() - h.ok) / 60000 : Infinity
+        hub = h.error ? `hub ✗ ${h.error.slice(0, 40)}`
+            : hace < 6 ? `hub ${h.version ?? ''} ✓`.replace('  ', ' ')
+            : h.ok ? `hub ✗ sin respuesta hace ${Math.round(hace)} min` : 'hub ?'
+      }
+      const sel = versionSelector()
+      versiones = [puente, hub, sel ? `selector ${sel}` : 'selector ✗ no instalado'].filter(Boolean).join(' · ')
+    }
     if (d?.agente) {
       menx = `menx: ${d.agente}`
       // Distinguir "sé que no tiene canales" de "no lo sé todavía": un registro
@@ -93,5 +164,5 @@ process.stdin.on('end', () => {
     }
   } catch { /* sin archivo todavía: queda "sin identidad", que es la verdad */ }
 
-  process.stdout.write([dir, modelo, menx].filter(Boolean).join('  |  '))
+  process.stdout.write([dir, modelo, menx, versiones].filter(Boolean).join('  |  '))
 })
