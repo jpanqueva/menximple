@@ -37,7 +37,7 @@ import { join } from 'node:path'
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-const VERSION = '0.5.0'
+const VERSION = '0.5.1'
 
 // Estado del hub visto desde este puente, para la barra de estado: versión que
 // declaró al conectar, último sondeo bueno y el último error. Se escribe en el
@@ -702,7 +702,7 @@ async function escuchar() {
           await confirmar(c.canal, quien, c.hasta)
           continue
         }
-        let porAcusar = 0
+        const porAcusar = new Map()   // quién me escribió → cuántos mensajes
         for (const m of nuevos) {
           await mcp.notification({
             method: 'notifications/claude/channel',
@@ -724,7 +724,7 @@ async function escuchar() {
           // Acusa lo dirigido a mí. Un mensaje general solo se acusa si en el canal
           // somos dos (ahí "todos" soy yo); en una sala de diez, diez acuses por un
           // aviso serían ruido.
-          if (!m.acuse && (m.para === quien || (!m.para && c.miembros === 2))) porAcusar++
+          if (!m.acuse && (m.para === quien || (!m.para && c.miembros === 2))) porAcusar.set(m.de, (porAcusar.get(m.de) ?? 0) + 1)
         }
 
         // Ya están en la sesión: recién ahora se pueden dar por leídos.
@@ -744,16 +744,20 @@ async function escuchar() {
         //
         // Salvo en canales marcados `sin-acuse`: al otro lado hay un proceso que
         // no los lee (un monitor, un DevOps) y el acuse solo ensucia el canal.
-        if (porAcusar && !(c.tags ?? []).includes('sin-acuse')) {
-          const cuantos = porAcusar === 1 ? 'recibido' : `recibidos ${porAcusar} mensajes`
-          try {
-            await llamar('enviar_mensaje', {
-              canal: c.canal, agente: quien, acuse: true,
-              texto: `[entregado a ${quien}] ${cuantos}, lo estoy procesando; ` +
-                     'te escribo cuando tenga algo.',
-            })
-          } catch (e) {
-            log(`no pude acusar recibo en ${c.canal}: ${e?.message ?? e}`)
+        // El acuse va DIRIGIDO a quien escribió: en una sala, un acuse general
+        // le llegaría a todos los miembros y es ruido para los demás.
+        if (porAcusar.size && !(c.tags ?? []).includes('sin-acuse')) {
+          for (const [de, n] of porAcusar) {
+            const cuantos = n === 1 ? 'recibido' : `recibidos ${n} mensajes`
+            try {
+              await llamar('enviar_mensaje', {
+                canal: c.canal, agente: quien, acuse: true, para: de,
+                texto: `[entregado a ${quien}] ${cuantos}, lo estoy procesando; ` +
+                       'te escribo cuando tenga algo.',
+              })
+            } catch (e) {
+              log(`no pude acusar recibo en ${c.canal}: ${e?.message ?? e}`)
+            }
           }
         }
       }
