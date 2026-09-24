@@ -20,6 +20,7 @@ os.environ["EMBEDDINGS_ENABLED"] = "false"
 from memory_server import canales as ch, store          # noqa: E402
 
 store.ensure_collections()
+import _catalogo  # noqa: E402,F401
 fallos = []
 
 
@@ -30,8 +31,8 @@ def chk(cond, msg):
 
 
 N = 60
-ch.crear_canal("t-carrera", "choque de escrituras", agente="emisor", cta="jhon", tags=["tipo:voz"])
-ch.unirse_canal("t-carrera", "receptor", cta="jhon")
+ch.crear_canal("canal-prueba-pantalla", "choque de escrituras", agente="agt-eqa-prueba-emisor", cta="jhon", tags=["tipo:voz"])
+ch.unirse_canal("canal-prueba-pantalla", "agt-eqb-prueba-receptor", cta="jhon")
 
 recibidos, errores = [], []
 fin = threading.Event()
@@ -40,7 +41,7 @@ fin = threading.Event()
 def enviar():
     try:
         for i in range(N):
-            ch.enviar_mensaje("t-carrera", "emisor", f"mensaje {i}")
+            ch.enviar_mensaje("canal-prueba-pantalla", "agt-eqa-prueba-emisor", f"mensaje {i}")
     except Exception as e:                       # noqa: BLE001
         errores.append(f"enviar: {e}")
     finally:
@@ -51,7 +52,7 @@ def recibir():
     try:
         while True:
             terminado = fin.is_set()             # se mira ANTES de leer: una vuelta más tras el último envío
-            r = ch.recibir_todo("receptor", espera=0, marcar=True)
+            r = ch.recibir_todo("agt-eqb-prueba-receptor", espera=0, marcar=True)
             for c in r["canales"]:
                 recibidos.extend(m["texto"] for m in c["mensajes"])
             if terminado:
@@ -65,7 +66,7 @@ def editar():
         i = 0
         while not fin.is_set():
             i += 1
-            ch.editar_canal("t-carrera", tags=["tipo:voz", f"latido:{i}"], cta="jhon")
+            ch.editar_canal("canal-prueba-pantalla", tags=["tipo:voz", f"latido:{i}"], cta="jhon")
     except Exception as e:                       # noqa: BLE001
         errores.append(f"editar: {e}")
 
@@ -74,7 +75,7 @@ def confirmar():
     """Lo que hace el puente: confirma hasta donde ya empujó, una y otra vez."""
     try:
         while not fin.is_set():
-            ch.confirmar_entrega("t-carrera", "emisor", 0)
+            ch.confirmar_entrega("canal-prueba-pantalla", "agt-eqa-prueba-emisor", 0)
     except Exception as e:                       # noqa: BLE001
         errores.append(f"confirmar: {e}")
 
@@ -87,7 +88,7 @@ for h in hilos:
 
 print("== escrituras simultáneas sobre un canal ==")
 chk(not errores, f"ninguna operación falló -> {errores[:2]}")
-c = ch._canal("t-carrera")
+c = ch._canal("canal-prueba-pantalla")
 msgs = store.scroll(store.MENSAJES, must=[store.cond("canal_id", c["_id"])], limit=5000)
 seqs = sorted(m["seq"] for m in msgs)
 chk(len(msgs) == N, f"se guardaron los {N} mensajes -> {len(msgs)}")
@@ -97,18 +98,18 @@ chk(c.get("seq") == N, f"el contador del canal quedó en {N} -> {c.get('seq')}")
 chk(sorted(recibidos) == sorted(f"mensaje {i}" for i in range(N)),
     f"el receptor los vio TODOS, una vez cada uno -> vio {len(recibidos)}, distintos {len(set(recibidos))}")
 chk("tipo:voz" in (c.get("tags") or []), "editar a la vez no dañó el canal")
-chk({m["agente"] for m in c["miembros"]} == {"emisor", "receptor"}, "nadie se cayó del canal")
+chk({m["agente"] for m in c["miembros"]} == {"agt-eqa-prueba-emisor", "agt-eqb-prueba-receptor"}, "nadie se cayó del canal")
 
 print("== un contador atrasado se corrige solo ==")
 # El estado que dejó el fallo en producción: mensajes con seq mayor que el del canal.
-c = ch._canal("t-carrera")
+c = ch._canal("canal-prueba-pantalla")
 c["seq"] = N - 5
 store.upsert(store.CANALES, c["_id"], c)
-r = ch.enviar_mensaje("t-carrera", "emisor", "después del daño")
+r = ch.enviar_mensaje("canal-prueba-pantalla", "agt-eqa-prueba-emisor", "después del daño")
 chk(r["seq"] == N + 1, f"el mensaje nuevo NO repite número -> seq {r['seq']}")
-chk(ch._canal("t-carrera").get("seq") == N + 1, "y el contador del canal queda corregido")
+chk(ch._canal("canal-prueba-pantalla").get("seq") == N + 1, "y el contador del canal queda corregido")
 
-ch.borrar_canal("t-carrera", cta="jhon")
+ch.borrar_canal("canal-prueba-pantalla", cta="jhon")
 print()
 print("TODO OK" if not fallos else f"{len(fallos)} FALLO(S)")
 raise SystemExit(1 if fallos else 0)

@@ -31,6 +31,7 @@ from memory_server import canales as ch, repository as repo, store  # noqa: E402
 from memory_server.server import mcp                          # noqa: E402
 
 store.ensure_collections()
+import _catalogo  # noqa: E402,F401
 fallos = []
 ESPERAS = 60          # más que los 40 hilos del pool de anyio
 ESPERA = 90           # lo que queda colgada cada una: de sobra para que conecten las 60
@@ -55,9 +56,9 @@ sufijo = str(time.time_ns())[-8:]
 KEY = repo.crear_cuenta(f"pool-{sufijo}")["apikey"]
 canales = []
 for i in range(PAREJAS):
-    nombre = f"pool-{sufijo}-{i}"
-    ch.crear_canal(nombre, agente=f"emisor-{i}", cta="x")
-    ch.unirse_canal(nombre, f"receptor-{i}", cta="x")
+    nombre = f"canal-eq{i}-eqz-trabajo"
+    ch.crear_canal(nombre, agente=f"agt-eqa-prueba-emisor{i}", cta="x")
+    ch.unirse_canal(nombre, f"agt-eqb-prueba-receptor{i}", cta="x")
     canales.append(nombre)
 
 
@@ -76,12 +77,12 @@ async def esperar(i):
         CONECTADAS.append(i)
         if i < PAREJAS:
             r = await c.call_tool("recibir_mensajes",
-                                  {"canal": canales[i], "agente": f"receptor-{i}",
+                                  {"canal": canales[i], "agente": f"agt-eqb-prueba-receptor{i}",
                                    "espera": ESPERA})
             textos = [m["texto"] for m in r.structured_content["mensajes"]]
         else:
             # Un agente sin canales: la espera más barata posible, solo ocupa el hueco.
-            await c.call_tool("recibir_de_todos", {"agente": f"solo-{i}", "espera": ESPERA})
+            await c.call_tool("recibir_de_todos", {"agente": f"agt-eqc-prueba-solo{i}", "espera": ESPERA})
             textos = None
     return i, textos, time.monotonic()
 
@@ -108,7 +109,7 @@ async def main():
         "al medir, las esperas SEGUÍAN colgadas (si no, la medida no prueba nada)")
     enviado = time.monotonic()
     for i, nombre in enumerate(canales):
-        ch.enviar_mensaje(nombre, f"emisor-{i}", f"hola {i}")
+        ch.enviar_mensaje(nombre, f"agt-eqa-prueba-emisor{i}", f"hola {i}")
     receptores = await asyncio.gather(*tareas[:PAREJAS])
     for i, textos, _ in receptores:
         chk(textos == [f"hola {i}"], f"receptor-{i} recibe su mensaje -> {textos}")
@@ -117,6 +118,9 @@ async def main():
     chk(all(0 <= t < 5 for t in tardanzas), f"y les llega al enviarse, no antes ni al agotar la espera -> {tardanzas} s")
     chk(sum(not t.done() for t in tareas[PAREJAS:]) == ESPERAS - PAREJAS,
         "las que no tenían nada siguen esperando (no vuelven vacías antes)")
+    for t in tareas[PAREJAS:]:
+        if t.done():
+            print("    terminó antes:", repr(t.exception())[:200] if t.exception() else t.result())
     for t in tareas[PAREJAS:]:
         t.cancel()
     await asyncio.gather(*tareas[PAREJAS:], return_exceptions=True)

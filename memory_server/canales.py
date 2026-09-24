@@ -1,7 +1,15 @@
 """Canales de conversación entre agentes.
 
-Un canal es una sala de **dos** agentes que pueden estar en máquinas, cuentas y
-países distintos. El hub solo guarda y entrega; quien despierta a un agente que
+Un canal es una **sala** (como en IRC) de agentes que pueden estar en máquinas,
+cuentas y países distintos. Sin tope de miembros. Un mensaje puede ir **dirigido**
+(`para`) a un miembro: todos pueden leerlo, pero solo a ese se le empuja al
+terminal y solo él acusa recibo; sin `para`, va a todos.
+
+Los nombres son estrictos y salen del catálogo (`registro.py`): agentes
+`agt-<equipo>-<ambito>-<rol>` y canales `canal-<equipo1>-<equipo2>-<actividad>` o
+`canal-<ambito>-<actividad>`. Lo que no cumpla el formato se rechaza. Fue una
+decisión del usuario tras una semana de agentes con nombres inventados y máquinas
+que fallaban sin que se supiera cuáles eran. El hub solo guarda y entrega; quien despierta a un agente que
 está esperando es el puente local (`canal/menx-canal.mjs`), que empuja el mensaje
 a la sesión de Claude Code como evento de canal.
 
@@ -20,17 +28,16 @@ Dos decisiones que conviene entender antes de tocar esto:
   mismo dueño —el caso normal— pero significa que correr agentes de clientes
   distintos bajo una sola apikey los deja enumerarse entre sí. Si hiciera falta
   separarlos, la cuenta es la línea: una apikey por cliente.
-- **Dos y no más.** No es una limitación técnica, es la que pidió el usuario: una
-  conversación entre dos tiene un "el otro" sin ambigüedad, así que un mensaje no
-  necesita destinatario y "responder" no necesita elegir a quién.
+- **Sin tope de miembros, mensajes dirigidos.** Antes eran salas de dos, para que
+  "el otro" no fuera ambiguo. Con varios miembros, `para` dice a quién va; un
+  mensaje sin `para` es para todos (un aviso, un "empiezo").
 """
 import functools
 import threading
 
-from . import store
+from . import registro, store
 from .models import MemoriaError
 
-CUPOS = 2
 ESPERA_MAX = 110      # Claude Code corta las tools a los 120 s; ver `recibir`.
 RETROCESO = 20        # cuánto historial ve quien entra; ver `unirse_canal`.
 TAGS_MAX = 8          # por canal
@@ -133,6 +140,7 @@ def _marcar_visto(canal: str, agente: str, hasta: int) -> None:
         for x in c.get("miembros", []):
             if x["agente"] == agente and hasta > x.get("visto", 0):
                 x["visto"] = hasta
+                x["leyo"] = store.now_ts()
                 cambio = True
         if cambio:
             store.upsert(store.CANALES, c["_id"], c)
@@ -149,11 +157,14 @@ def _canal(nombre: str) -> dict:
     return hallados[0]
 
 
-def _agente(nombre: str) -> str:
+def _agente(nombre: str, cta: str | None = None) -> str:
+    """Nombre válido según el catálogo (`agt-<equipo>-<ambito>-<rol>`), ya
+    registrado y con su `visto` al día. Lo que no cumpla el formato, o cuyo equipo
+    o ámbito no existan, se rechaza con el motivo."""
     a = (nombre or "").strip()
     if not a:
-        raise MemoriaError("falta el nombre del agente (con quién habla el otro lado)")
-    return a
+        raise MemoriaError("falta el nombre del agente (agt-<equipo>-<ambito>-<rol>)")
+    return registro.tocar_agente(a, cta)
 
 
 def _miembro(c: dict, agente: str) -> dict:
@@ -165,12 +176,23 @@ def _miembro(c: dict, agente: str) -> dict:
 
 
 def _out(c: dict) -> dict:
+    seq = c.get("seq", 0)
     return {
         "nombre": c["nombre"], "descripcion": c.get("descripcion"),
+        "actividad": c.get("actividad"),
+        **({"ambito": c["ambito"]} if c.get("ambito") else {}),
+        **({"equipos": c["equipos"]} if c.get("equipos") else {}),
         "tags": c.get("tags") or [],
         "agentes": [m["agente"] for m in c.get("miembros", [])],
-        "cupos_libres": CUPOS - len(c.get("miembros", [])),
-        "mensajes": c.get("seq", 0),
+        # La ficha de cada miembro: con esto se ve, antes de escribirle a alguien,
+        # si está vivo, cuándo habló por última vez y cuánto tiene sin leer.
+        "miembros": [{"agente": m["agente"],
+                      "pendientes": max(0, seq - m.get("visto", 0)),
+                      "ultimo_escribio": store.iso(m.get("escribio")),
+                      "ultimo_leyo": store.iso(m.get("leyo")),
+                      "desde": store.iso(m.get("desde"))} for m in c.get("miembros", [])],
+        "mensajes": seq,
+        "ultimo_mensaje": store.iso(c.get("ultimo_ts")),
         "creado": store.iso(c.get("created_at")),
     }
 
@@ -195,12 +217,21 @@ def crear_canal(nombre: str, descripcion: str | None = None,
     nombre = (nombre or "").strip().lower()
     if not nombre:
         raise MemoriaError("falta el nombre del canal")
+    partes = registro.validar_canal(nombre)      # rechaza lo que no siga la nomenclatura
     tags = _norm_tags(tags)                      # antes de crear nada: si están mal, no se crea
+    # La actividad y el ámbito viajan también como tags, que es lo que el puente
+    # pone en cada mensaje entregado (tipo:voz, proyecto:sagente...).
+    for t in ([f"tipo:{partes['actividad']}"] +
+              ([f"proyecto:{partes['ambito']}"] if partes.get("ambito") else [])):
+        if t not in tags:
+            tags.append(t)
     if store.scroll(store.CANALES, must=[store.cond("nombre", nombre)], limit=1):
         raise MemoriaError(f"ya existe un canal '{nombre}'")
     ts = store.now_ts()
     payload = {"_id": store.nuevo_id(), "nombre": nombre, "descripcion": descripcion,
                "cuenta": cta, "miembros": [], "seq": 0, "tags": tags,
+               "actividad": partes["actividad"], "ambito": partes.get("ambito"),
+               "equipos": partes.get("equipos"),
                "created_at": ts, "updated_at": ts}
     store.upsert(store.CANALES, payload["_id"], payload)
     if agente:
@@ -271,7 +302,7 @@ def borrar_canal(canal: str, cta: str | None = None) -> dict:
 @_de_a_uno
 def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
     c = _canal(canal)
-    agente = _agente(agente)
+    agente = _agente(agente, cta)
     miembros = c.get("miembros", [])
 
     ya = [m for m in miembros if m["agente"] == agente]
@@ -283,10 +314,6 @@ def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
             ya[0]["cuenta"] = cta
             store.upsert(store.CANALES, c["_id"], c)
         return {**_out(c), "reentro": True, "leidos_hasta": ya[0].get("visto", 0)}
-    if len(miembros) >= CUPOS:
-        otros = ", ".join(m["agente"] for m in miembros)
-        raise MemoriaError(f"el canal '{c['nombre']}' ya tiene sus {CUPOS} agentes "
-                           f"({otros}); usa otro canal o que alguno salga")
 
     # Quien llega SÍ lee lo que se dijo antes. La primera versión ponía la marca
     # en el último mensaje ("lo dicho antes de llegar no es suyo") y eso perdía en
@@ -299,7 +326,7 @@ def unirse_canal(canal: str, agente: str, cta: str | None = None) -> dict:
     # usuario. Si se recortó, se dice.
     atras = max(0, c.get("seq", 0) - RETROCESO)
     miembros.append({"agente": agente, "visto": atras, "cuenta": cta,
-                     "desde": store.now_ts()})
+                     "desde": store.now_ts(), "escribio": None, "leyo": None})
     c["miembros"] = miembros
     c["updated_at"] = store.now_ts()
     store.upsert(store.CANALES, c["_id"], c)
@@ -325,8 +352,11 @@ def salir_canal(canal: str, agente: str) -> dict:
 
 
 @_de_a_uno
-def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> dict:
-    """Escribe en el canal. `acuse=True` marca el mensaje como acuse de recibo.
+def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False,
+                   para: str | None = None) -> dict:
+    """Escribe en el canal. `para` lo dirige a un miembro: todos lo pueden leer,
+    pero solo a ese se le empuja y solo él acusa. Sin `para`, es para todos.
+    `acuse=True` marca el mensaje como acuse de recibo.
 
     El acuse existe porque un encargo puede tardar mucho y, sin él, quien preguntó
     no distingue "todavía no lo ha leído" de "lo está trabajando". Va marcado para
@@ -337,7 +367,14 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
         raise MemoriaError("el mensaje está vacío")
     c = _canal(canal)
     agente = _agente(agente)
-    _miembro(c, agente)
+    yo = _miembro(c, agente)
+    destino = None
+    if para:
+        destino = (para or "").strip().lower()
+        if destino == agente:
+            raise MemoriaError("`para` no puede ser tú mismo")
+        _miembro(c, destino)             # tiene que estar en el canal
+    yo["escribio"] = store.now_ts()
 
     # El contador del canal manda, pero se comprueba contra los mensajes que ya
     # existen: si alguna vez quedó atrasado (ver `_cerrojo`), no se repite número y
@@ -354,12 +391,15 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
     mid = store.nuevo_id()
     store.upsert(store.MENSAJES, mid,
                  {"_id": mid, "canal_id": c["_id"], "seq": seq,
-                  "de": agente, "texto": texto, "ts": ts, "acuse": bool(acuse)})
+                  "de": agente, "para": destino, "texto": texto, "ts": ts,
+                  "acuse": bool(acuse)})
     c["seq"] = seq
     c["updated_at"] = ts
+    c["ultimo_ts"] = ts
     store.upsert(store.CANALES, c["_id"], c)
 
-    otros = [m["agente"] for m in c.get("miembros", []) if m["agente"] != agente]
+    otros = [destino] if destino else \
+            [m["agente"] for m in c.get("miembros", []) if m["agente"] != agente]
     return {"canal": c["nombre"], "seq": seq, "para": otros or None,
             "aviso": None if otros else
             "no hay nadie más en el canal todavía; el mensaje queda esperando"}
@@ -383,7 +423,10 @@ def _pendientes(c: dict, desde: int, agente: str) -> tuple[list[dict], int]:
     msgs = sorted(msgs, key=lambda m: m.get("seq", 0))
     if not msgs:
         return [], desde
-    return [m for m in msgs if m.get("de") != agente], msgs[-1]["seq"]
+    # Lo propio y lo dirigido a otro no se entrega, pero sí cuenta como visto: el
+    # canal es una sala, uno se entera de todo, pero solo lo suyo le interrumpe.
+    return ([m for m in msgs if m.get("de") != agente and m.get("para") in (None, agente)],
+            msgs[-1]["seq"])
 
 
 def _canales_de(agente: str) -> list[dict]:
@@ -392,8 +435,7 @@ def _canales_de(agente: str) -> list[dict]:
 
 
 def mis_canales(agente: str, tags=None) -> list[dict]:
-    """En qué canales está este agente. Puede estar en varios a la vez: el límite
-    de dos es por canal, no por agente. `tags` filtra igual que en `listar_canales`."""
+    """En qué canales está este agente. `tags` filtra igual que en `listar_canales`."""
     pedidos = _norm_tags(tags)
     return [_out(c) for c in _canales_de(_agente(agente)) if _con_tags(c, pedidos)]
 
@@ -415,6 +457,7 @@ def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     for x in c["miembros"]:
         if x["agente"] == agente:
             x["visto"] = min(hasta, c.get("seq", 0))
+            x["leyo"] = store.now_ts()
     store.upsert(store.CANALES, c["_id"], c)
     return {"canal": c["nombre"], "agente": agente, "leido_hasta": hasta}
 
@@ -447,8 +490,8 @@ def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
                     # Los tags viajan con la entrega para que el puente los ponga
                     # en el evento sin tener que preguntar por cada canal.
                     "canal": c["nombre"], "tags": c.get("tags") or [], "hasta": hasta,
-                    "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
-                                  "acuse": bool(x.get("acuse")),
+                    "mensajes": [{"seq": x["seq"], "de": x["de"], "para": x.get("para"),
+                                  "texto": x["texto"], "acuse": bool(x.get("acuse")),
                                   "cuando": store.iso(x["ts"])} for x in msgs],
                 })
         if salida or time.time() >= limite:
@@ -484,8 +527,8 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
 
     return {
         "canal": c["nombre"], "tags": c.get("tags") or [],
-        "mensajes": [{"seq": x["seq"], "de": x["de"], "texto": x["texto"],
-                      "acuse": bool(x.get("acuse")),
+        "mensajes": [{"seq": x["seq"], "de": x["de"], "para": x.get("para"),
+                      "texto": x["texto"], "acuse": bool(x.get("acuse")),
                       "cuando": store.iso(x["ts"])} for x in msgs],
         "esperando": [a["agente"] for a in c.get("miembros", [])
                       if a["agente"] != agente] or None,

@@ -11,7 +11,7 @@ from fastmcp.exceptions import ToolError
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from . import archivos
+from . import archivos, registro
 from . import auth
 from . import canales
 from . import repository as repo
@@ -277,10 +277,44 @@ def listar_recientes(limit: int = 10) -> list[dict]:
     return _g(repo.listar_recientes, auth.cuenta_actual(), limit)
 
 
+# --- Catálogo: equipos, ámbitos, actividades, agentes ---
+#
+# Nomenclatura estricta (decisión del usuario, sep-2026): agentes
+# `agt-<equipo>-<ambito>-<rol>`, canales `canal-<equipo1>-<equipo2>-<actividad>`
+# o `canal-<ambito>-<actividad>`. Equipos, ámbitos y actividades salen de este
+# catálogo; lo que no esté aquí no puede ni identificarse ni crear canales.
+
+@mcp.tool
+def registro_ver(clase: str | None = None, nombre: str | None = None,
+                 hostname: str | None = None) -> list[dict]:
+    """El catálogo de nombres: `equipo` (máquinas, con su hostname), `ambito`
+    (empresas y proyectos), `actividad` (para qué es un canal) y `agente` (quién
+    existe, en qué equipo y ámbito, y cuándo se le vio por última vez).
+
+    Sin argumentos devuelve todo (es corto). `clase` filtra; `nombre` busca uno;
+    `hostname` sirve para saber qué equipo es esta máquina (`hostname` en la
+    consola) antes de identificarte."""
+    return _g(registro.ver, clase, nombre, hostname)
+
+
+@mcp.tool
+def registro_crear(clase: str, nombre: str, hostname: str | None = None,
+                   tipo: str | None = None, dueno: str | None = None,
+                   descripcion: str | None = None) -> dict:
+    """Da de alta un `equipo` (necesita `hostname` y `tipo` pc|servidor), un
+    `ambito` (necesita `tipo` empresa|proyecto) o una `actividad`. Los agentes NO
+    se crean aquí: se registran solos la primera vez que un nombre válido entra a
+    un canal. Solo con el usuario diciéndolo: un catálogo no se llena por
+    iniciativa propia. No hay editar ni borrar."""
+    return _g(registro.crear, clase, nombre, auth.cuenta_actual(), hostname, tipo, dueno,
+              descripcion)
+
+
 # --- Canales entre agentes ---
 #
-# Un canal es una sala de DOS agentes, que pueden estar en máquinas y cuentas
-# distintas. A diferencia de las memorias, los canales NO están aislados por
+# Un canal es una SALA de agentes (sin tope), que pueden estar en máquinas y
+# cuentas distintas. Un mensaje puede ir dirigido (`para`) a un miembro: solo a
+# ese se le empuja y solo él acusa; sin `para` va a todos. A diferencia de las memorias, los canales NO están aislados por
 # cuenta: de eso se trata. El aislamiento lo da la membresía.
 #
 # El hub guarda y entrega. Quien DESPIERTA a un agente que está esperando es el
@@ -290,8 +324,11 @@ def listar_recientes(limit: int = 10) -> list[dict]:
 @mcp.tool
 def crear_canal(nombre: str, descripcion: str | None = None,
                 agente: str | None = None, tags: list[str] | None = None) -> dict:
-    """Crea un canal para hablar con otro agente. El nombre se normaliza a
-    minúsculas y es como se entra desde el otro lado.
+    """Crea un canal. El nombre sigue la nomenclatura del catálogo:
+    `canal-<equipo1>-<equipo2>-<actividad>` (dos equipos, en orden alfabético) o
+    `canal-<ambito>-<actividad>` (sala de un ámbito, para varios agentes). Los
+    equipos, ámbitos y actividades tienen que existir (`registro_ver`); si no, se
+    rechaza. La actividad y el ámbito se agregan solos como tags.
 
     **Pasa `agente` con tu nombre**: crear el canal no te mete en él, y sin eso tu
     primer `enviar_mensaje` falla.
@@ -314,9 +351,9 @@ def editar_canal(canal: str, descripcion: str | None = None,
 
 @mcp.tool
 def listar_canales(tags: list[str] | None = None) -> list[dict]:
-    """**Tus** canales —los que creaste y en los que estás—, con quién hay en cada
-    uno, sus tags y cuántos cupos quedan (son 2 por canal). Empieza por aquí antes
-    de crear.
+    """**Tus** canales —los que creaste y en los que estás—, con la ficha de cada
+    miembro (cuánto tiene sin leer, cuándo escribió y leyó por última vez), sus
+    tags y el total de mensajes. Empieza por aquí antes de crear.
 
     `tags` filtra: solo los que tengan TODOS los pedidos. Un tag terminado en `:`
     casa por prefijo (`["proyecto:"]` = los que tengan algún proyecto). Úsalo para
@@ -342,11 +379,11 @@ def borrar_canal(canal: str) -> dict:
 
 @mcp.tool
 def unirse_canal(canal: str, agente: str) -> dict:
-    """Entra a un canal con un nombre de agente (`qa-ubuntu`, `jhon-windows`).
-
-    Ese nombre es como te llama el otro lado, así que ponlo reconocible. Un canal
-    admite 2 agentes; **tú puedes estar en varios canales a la vez**. Volver a
-    entrar con el mismo nombre no es error: retomas donde ibas."""
+    """Entra a un canal con tu nombre de agente, que tiene que seguir la
+    nomenclatura `agt-<equipo>-<ambito>-<rol>` con equipo y ámbito del catálogo
+    (si no, se rechaza y te dice por qué). Un canal no tiene tope de miembros;
+    **puedes estar en varios a la vez**. Volver a entrar no es error: retomas
+    donde ibas."""
     return _g(canales.unirse_canal, canal, agente, auth.cuenta_actual())
 
 
@@ -357,9 +394,11 @@ def salir_canal(canal: str, agente: str) -> dict:
 
 
 @mcp.tool
-def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> dict:
-    """Escribe en el canal. `agente` eres tú, no el destinatario: como son dos, el
-    mensaje va al otro sin que haya que decir a quién.
+def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False,
+                   para: str | None = None) -> dict:
+    """Escribe en el canal. `agente` eres tú. `para` es el destinatario (un miembro
+    del canal): todos lo pueden leer, pero solo a él se le empuja al terminal y
+    solo él acusa. Sin `para`, va a todos los miembros (un aviso, un "empiezo").
 
     Si el otro tiene el puente local corriendo, esto **le interrumpe la espera** y
     lo pone a trabajar. Escribe el mensaje completo: el otro no ve tu conversación
@@ -367,7 +406,7 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False) -> 
 
     `acuse=True` lo marca como acuse de recibo, para que el otro lado no conteste
     un acuse con otro acuse. Normalmente no lo pones tú: lo manda el puente solo."""
-    return _g(canales.enviar_mensaje, canal, agente, texto, acuse)
+    return _g(canales.enviar_mensaje, canal, agente, texto, acuse, para)
 
 
 @mcp.tool
@@ -529,6 +568,7 @@ def main() -> None:
     store.ensure_collections()
     # El MCP se sirve en /mcp; la ofuscación del path público (ej. /<prefijo>/api) la hace el
     # reverse proxy (nginx) mapeando /<prefijo>/api -> /mcp.
+    registro.sembrar()          # las actividades base, si el catálogo está vacío
     mcp.run(transport="http", host=settings.mcp_host, port=settings.mcp_port)
 
 

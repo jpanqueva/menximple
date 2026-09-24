@@ -25,6 +25,7 @@ ENTRADAS = "entradas"
 # de eso se trata, que dos agentes de máquinas (y cuentas) distintas se hablen.
 CANALES = "canales"
 MENSAJES = "mensajes"
+REGISTRO = "registro"     # catálogo: equipos, ámbitos, actividades, agentes
 # Fichas de los archivos publicados. Los bytes van a disco (ver archivos.py).
 ARCHIVOS = "archivos"
 _DUMMY = [0.0]
@@ -122,7 +123,7 @@ def ensure_collections() -> None:
             ENTRADAS,
             vectors_config=VectorParams(size=settings.embedding_dims, distance=Distance.COSINE),
         )
-    for col in (CANALES, MENSAJES, ARCHIVOS):
+    for col in (CANALES, MENSAJES, ARCHIVOS, REGISTRO):
         if col not in existentes:
             c.create_collection(col, vectors_config=VectorParams(size=1, distance=Distance.COSINE))
 
@@ -148,6 +149,7 @@ def ensure_collections() -> None:
     _idx(MENSAJES, {"canal_id": kw, "de": kw, "seq": PayloadSchemaType.INTEGER,
                     "ts": flt})
     _idx(ARCHIVOS, {"cuenta": kw, "token": kw, "created_at": flt})
+    _idx(REGISTRO, {"clase": kw, "nombre": kw, "hostname": kw, "equipo": kw, "ambito": kw})
 
 
 def _mismo_indice(info, deseado) -> bool:
