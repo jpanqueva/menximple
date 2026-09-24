@@ -75,6 +75,27 @@ const DIR = process.env.MENX_CANAL_DIR || join(homedir(), '.menx-canal')
 const ARCHIVO = join(DIR, 'identidades.json')
 const CERROJO = join(DIR, 'consumidor.json')   // lo escribe el puente que escucha
 
+function armarVersiones(d) {
+  // Los tres MCP, con su versión, y si el puente que corre es el del disco.
+  const disco = versionEnDisco()
+  let puente
+  // Sin versión en el registro: el puente que corre es anterior a esto. Si el
+  // disco ya tiene la nueva, solo falta reiniciar; si tampoco, actualizar el repo.
+  let hub = null
+  if (!d.version) puente = disco ? `canal ✗ REINICIA Claude Code (en disco ${disco})` : 'canal ✗ ACTUALIZA el repo'
+  else if (disco && disco !== d.version) puente = `canal ${d.version} ✗ REINICIA Claude Code (en disco ${disco})`
+  else puente = `canal ${d.version} ✓`
+  if (d.version) {
+    const h = d.hub ?? {}
+    const hace = h.ok ? (Date.now() - h.ok) / 60000 : Infinity
+    hub = h.error ? `hub ✗ ${h.error.slice(0, 40)}`
+        : hace < 6 ? `hub ${h.version ?? ''} ✓`.replace('  ', ' ')
+        : h.ok ? `hub ✗ sin respuesta hace ${Math.round(hace)} min` : 'hub ?'
+  }
+  const sel = versionSelector()
+  return [puente, hub, sel ? `selector ${sel}` : 'selector ✗ no instalado'].filter(Boolean).join(' · ')
+}
+
 let entrada = ''
 process.stdin.on('data', (d) => { entrada += d })
 process.stdin.on('end', () => {
@@ -111,6 +132,7 @@ process.stdin.on('end', () => {
     // barra existe para delatar; paso una vez y costo una tanda de mensajes.
     // El cerrojo del consumidor sí lo prueba: lo escribe el puente al quedarse con
     // el turno, y su pid tiene que seguir vivo.
+    if (d) versiones = armarVersiones(d)
     let escuchando = false
     if (d?.agente) {
       try {
@@ -121,28 +143,8 @@ process.stdin.on('end', () => {
     }
     if (d?.agente && !escuchando) {
       process.stdout.write([dir, modelo,
-        `menx: SIN ESCUCHAR (identifícate como ${d.agente})`].filter(Boolean).join('  |  '))
+        `menx: SIN ESCUCHAR (identifícate como ${d.agente})`, versiones].filter(Boolean).join('  |  '))
       return
-    }
-    if (d) {
-      // Los tres MCP, con su versión, y si el puente que corre es el del disco.
-      const disco = versionEnDisco()
-      let puente
-      // Sin versión en el registro: el puente que corre es anterior a esto. Si el
-      // disco ya tiene la nueva, solo falta reiniciar; si tampoco, actualizar el repo.
-      let hub = null
-      if (!d.version) puente = disco ? `canal ✗ REINICIA Claude Code (en disco ${disco})` : 'canal ✗ ACTUALIZA el repo'
-      else if (disco && disco !== d.version) puente = `canal ${d.version} ✗ REINICIA Claude Code (en disco ${disco})`
-      else puente = `canal ${d.version} ✓`
-      if (d.version) {
-        const h = d.hub ?? {}
-        const hace = h.ok ? (Date.now() - h.ok) / 60000 : Infinity
-        hub = h.error ? `hub ✗ ${h.error.slice(0, 40)}`
-            : hace < 6 ? `hub ${h.version ?? ''} ✓`.replace('  ', ' ')
-            : h.ok ? `hub ✗ sin respuesta hace ${Math.round(hace)} min` : 'hub ?'
-      }
-      const sel = versionSelector()
-      versiones = [puente, hub, sel ? `selector ${sel}` : 'selector ✗ no instalado'].filter(Boolean).join(' · ')
     }
     if (d?.agente) {
       menx = `menx: ${d.agente}`
