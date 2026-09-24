@@ -106,7 +106,7 @@ if (!URL_HUB || !APIKEY) {
 }
 
 const mcp = new Server(
-  { name: 'menx-canal', version: '0.4.0' },
+  { name: 'menx-canal', version: '0.4.1' },
   {
     capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
     instructions:
@@ -169,7 +169,7 @@ async function soltar(prom) {
 function cliente() {
   if (!conexion) {
     conexion = (async () => {
-      const c = new Client({ name: 'menx-canal', version: '0.4.0' }, { capabilities: {} })
+      const c = new Client({ name: 'menx-canal', version: '0.4.1' }, { capabilities: {} })
       const t = new StreamableHTTPClientTransport(new URL(URL_HUB), {
         requestInit: { headers: { 'X-API-Key': APIKEY } },
       })
@@ -202,7 +202,31 @@ function sesionRota(e) {
   return true            // red, 404 "Session not found", 400, respuesta ilegible…
 }
 
-async function llamar(tool, args, { timeoutMs } = {}) {
+// ¿Fallo pasajero del camino (nginx saturado, hub reiniciando, red)? Con estos
+// vale la pena volver a intentar; con un error del hub o de negocio, no.
+function pasajero(e) {
+  if (e?.negocio) return false
+  return /\b50[234]\b|Service Temporarily Unavailable|fetch failed|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up/i
+    .test(String(e?.message ?? e))
+}
+
+async function llamar(tool, args, { timeoutMs, intento = 1 } = {}) {
+  try {
+    return await llamarUnaVez(tool, args, { timeoutMs })
+  } catch (e) {
+    // Reintento solo para las tools del agente (sin timeoutMs): la escucha ya
+    // tiene su propio bucle con espera. Un 503 de nginx dura segundos (tope de
+    // conexiones, hub reiniciando); devolvérselo al agente lo obligaba a
+    // reintentar él a mano —o a no hacerlo y perder el mensaje (24/09/2026).
+    if (timeoutMs || intento >= 4 || !pasajero(e)) throw e
+    const pausa = 2 ** intento          // 2, 4, 8 s
+    log(`${tool}: fallo pasajero (${String(e?.message ?? e).slice(0, 80)}); reintento ${intento}/3 en ${pausa}s`)
+    await dormir(pausa)
+    return llamar(tool, args, { timeoutMs, intento: intento + 1 })
+  }
+}
+
+async function llamarUnaVez(tool, args, { timeoutMs } = {}) {
   const mia = cliente()
   const hub = await mia
   let d
