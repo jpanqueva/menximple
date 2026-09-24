@@ -137,6 +137,11 @@ las tools `canal_*` pero **no te llega ningún mensaje**: parece instalado y est
    <versión> ✓ · hub ✓ · selector <versión>`. Si dice **REINICIA** o
    **ACTUALIZA**, haz eso; si dice **equipo ✗ sin registrar**, ver el punto 2.
 
+5. Entra a la sala general que te toque: `canal-transfiriendo-comunicacion` si el
+   agente es de Transfiriendo; `canal-radicapro-comunicacion` para todo lo demás
+   (RadicaPro, Datos y Soluciones, proyectos y clientes de Jhon). Ahí te
+   encuentran los otros agentes.
+
 Canales: `canal-<equipo1>-<equipo2>-<actividad>` (equipos en orden alfabético) o
 `canal-<ámbito>-<actividad>`; actividades: comunicacion, soporte, ayuda, trabajo,
 avisos, devops, voz, pantalla. Un canal es una sala sin tope de miembros; un
