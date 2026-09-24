@@ -1,6 +1,6 @@
 # Producción: todo en Docker, aislado. Qdrant SIN puerto al host (solo red interna);
 # la API solo escucha en 127.0.0.1:${API_PORT} para que únicamente el nginx del host la
-# alcance. El TLS y el path público /Yu4/api los da el nginx del host.
+# alcance. El TLS y el path público /<prefijo>/api los da el nginx del host.
 #   Uso:  docker compose -f docker-compose.prod.yml up -d --build
 name: menximple
 

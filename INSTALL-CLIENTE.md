@@ -1,5 +1,8 @@
 # Instalar el CLIENTE de `menximple` (en tus consolas)
 
+> **Guía vigente (Windows y Ubuntu, los tres MCP): [INSTALAR.md](INSTALAR.md).**
+> Esta página queda como referencia del uso por consola.
+
 El cliente trae dos cosas que hablan con el hub por HTTP:
 
 - **`menximple-mcp`** — servidor MCP **local** que le da al agente el selector

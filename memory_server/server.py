@@ -412,7 +412,7 @@ def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
 # selector) que lee la ruta del disco y hace el POST.
 #
 # La subida cuelga de /mcp/archivos a propósito: el nginx de producción ya manda
-# todo /Yu4/api/* a /mcp/*, así que no hace falta abrir otra ruta ni inventarle al
+# todo /<prefijo>/api/* a /mcp/*, así que no hace falta abrir otra ruta ni inventarle al
 # cliente una URL aparte — es MEMORY_BASE_URL + "/archivos".
 
 @mcp.custom_route("/mcp/archivos", methods=["POST"])
@@ -527,8 +527,8 @@ def listar_cuentas() -> list[dict]:
 
 def main() -> None:
     store.ensure_collections()
-    # El MCP se sirve en /mcp; la ofuscación del path público (ej. /Yu4/api) la hace el
-    # reverse proxy (nginx) mapeando /Yu4/api -> /mcp.
+    # El MCP se sirve en /mcp; la ofuscación del path público (ej. /<prefijo>/api) la hace el
+    # reverse proxy (nginx) mapeando /<prefijo>/api -> /mcp.
     mcp.run(transport="http", host=settings.mcp_host, port=settings.mcp_port)
 
 

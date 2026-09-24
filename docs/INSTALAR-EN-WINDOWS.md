@@ -1,5 +1,9 @@
 # Instalar menximple en tu Windows (Claude Code)
 
+> **Guía vigente, más corta y para Windows y Ubuntu: [../INSTALAR.md](../INSTALAR.md).**
+> Desde el 24-sep-2026 el hub tiene URL nueva (pídesela al administrador); la
+> anterior responde 410. Esta página se conserva por el detalle de cada paso.
+
 Esta guía es para **usar** el sistema, no para montarlo. Al terminar, Claude Code
 tendrá memoria a largo plazo en **todas** tus sesiones, se abra el proyecto que se abra.
 

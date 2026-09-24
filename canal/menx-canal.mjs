@@ -16,7 +16,7 @@
  * solo para máquinas dedicadas (un servidor de QA que siempre es el mismo).
  *
  * Entorno:
- *   MEMORY_BASE_URL   el hub (…/Yu4/api)          [obligatorio]
+ *   MEMORY_BASE_URL   el hub (…/<prefijo>/api)          [obligatorio]
  *   MEMORY_APIKEY     apikey de la cuenta         [obligatorio]
  *   CANAL_AGENTE      identidad por defecto       [opcional]
  *
