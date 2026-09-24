@@ -93,7 +93,10 @@ function armarVersiones(d) {
         : h.ok ? `hub ✗ sin respuesta hace ${Math.round(hace)} min` : 'hub ?'
   }
   const sel = versionSelector()
-  return [puente, hub, sel ? `selector ${sel}` : 'selector ✗ no instalado'].filter(Boolean).join(' · ')
+  // El equipo: si esta máquina no está en el catálogo, ningún agente de aquí
+  // podrá identificarse; mejor verlo en la barra que descubrirlo al fallar.
+  const equipo = d.version && 'equipo' in d ? (d.equipo ? `equipo ${d.equipo}` : `equipo ✗ ${d.hostname ?? ''} sin registrar`) : null
+  return [equipo, puente, hub, sel ? `selector ${sel}` : 'selector ✗ no instalado'].filter(Boolean).join(' · ')
 }
 
 let entrada = ''

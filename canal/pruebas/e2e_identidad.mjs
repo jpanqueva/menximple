@@ -14,7 +14,8 @@ const APIKEY = process.env.MEMORY_APIKEY
 // fileURLToPath y no .pathname: en Windows .pathname devuelve /C:/... con
 // barra inicial, que no es una ruta valida y el proceso hijo no arranca.
 const PUENTE = fileURLToPath(new URL('../menx-canal.mjs', import.meta.url))
-const CANAL = 'e2e-ident-' + Date.now().toString().slice(-6)
+const S = Date.now().toString().slice(-6)
+const CANAL = 'canal-p' + S + '-comunicacion'
 
 const AISLADO = join(tmpdir(), 'menx-pruebas-' + process.pid)
 
@@ -74,11 +75,11 @@ r = await call(A, 'canal_estado')
 chk(r.dato?.agente === null, 'canal_estado dice que no hay identidad')
 
 console.log('== dos identidades distintas en la MISMA maquina ==')
-await call(A, 'canal_identificarse', { agente: 'qa-arauca' })
-await call(B, 'canal_identificarse', { agente: 'jhon-insumedic' })
+await call(A, 'canal_identificarse', { agente: 'agt-eqa-prueba-qa' })
+await call(B, 'canal_identificarse', { agente: 'agt-eqb-prueba-jhon' })
 const ea = (await call(A, 'canal_estado')).dato
 const eb = (await call(B, 'canal_estado')).dato
-chk(ea.agente === 'qa-arauca' && eb.agente === 'jhon-insumedic',
+chk(ea.agente === 'agt-eqa-prueba-qa' && eb.agente === 'agt-eqb-prueba-jhon',
     `cada puente tiene la suya -> ${ea.agente} / ${eb.agente}`)
 
 console.log('== se hablan ==')
@@ -88,6 +89,7 @@ const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sd
 await hub.connect(new StreamableHTTPClientTransport(new URL(URL_HUB), {
   requestInit: { headers: { 'X-API-Key': APIKEY } },
 }))
+await hub.callTool({ name: 'registro_crear', arguments: { clase: 'ambito', nombre: 'p' + S, tipo: 'proyecto' } })
 await hub.callTool({ name: 'crear_canal', arguments: { nombre: CANAL } })
 
 await call(A, 'canal_unirse', { canal: CANAL })
@@ -97,13 +99,13 @@ await new Promise((r) => setTimeout(r, 6000))
 
 chk(recibido.a.length === 1 && recibido.a[0].texto === 'corre las pruebas del armado',
     `A recibio el mensaje -> ${JSON.stringify(recibido.a)}`)
-chk(recibido.a[0]?.de === 'jhon-insumedic', `y sabe quien lo mando -> ${recibido.a[0]?.de}`)
+chk(recibido.a[0]?.de === 'agt-eqb-prueba-jhon', `y sabe quien lo mando -> ${recibido.a[0]?.de}`)
 chk(recibido.b.length === 0, `B NO recibio el suyo propio -> ${JSON.stringify(recibido.b)}`)
 
 console.log('== contesta el otro lado ==')
 await call(A, 'canal_enviar', { canal: CANAL, texto: '12 pruebas OK' })
 await new Promise((r) => setTimeout(r, 6000))
-chk(recibido.b.length === 1 && recibido.b[0].de === 'qa-arauca',
+chk(recibido.b.length === 1 && recibido.b[0].de === 'agt-eqa-prueba-qa',
     `B recibio la respuesta de A -> ${JSON.stringify(recibido.b)}`)
 
 // limpieza

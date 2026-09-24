@@ -30,8 +30,8 @@ const call = async (tool, args = {}) => {
 }
 
 console.log('== identificarse mientras el bucle ya esta corriendo ==')
-let r = await call('canal_identificarse', { agente: 'concurrencia-1' })
-chk(!r.error && r.dato?.agente === 'concurrencia-1', `identifico -> ${r.texto?.slice(0, 80)}`)
+let r = await call('canal_identificarse', { agente: 'agt-eqa-prueba-conc1' })
+chk(!r.error && r.dato?.agente === 'agt-eqa-prueba-conc1', `identifico -> ${r.texto?.slice(0, 80)}`)
 
 // A partir de aqui el bucle esta colgado 100 s en recibir_de_todos. Toda llamada
 // que se haga ahora convive con esa espera: es justo el escenario que rompia.
@@ -40,7 +40,7 @@ await new Promise((x) => setTimeout(x, 2500))
 const rs = await Promise.all(Array.from({ length: 8 }, () => call('canal_estado')))
 const malas = rs.filter((x) => x.error)
 chk(malas.length === 0, `ninguna reventó (${malas.map((m) => m.texto).slice(0, 2)})`)
-chk(rs.every((x) => x.dato?.agente === 'concurrencia-1'), 'todas ven la identidad correcta')
+chk(rs.every((x) => x.dato?.agente === 'agt-eqa-prueba-conc1'), 'todas ven la identidad correcta')
 
 console.log('== y sigue funcionando despues ==')
 r = await call('canal_estado')

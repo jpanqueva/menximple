@@ -490,6 +490,7 @@ def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
                     # Los tags viajan con la entrega para que el puente los ponga
                     # en el evento sin tener que preguntar por cada canal.
                     "canal": c["nombre"], "tags": c.get("tags") or [], "hasta": hasta,
+                    "miembros": len(c.get("miembros", [])),
                     "mensajes": [{"seq": x["seq"], "de": x["de"], "para": x.get("para"),
                                   "texto": x["texto"], "acuse": bool(x.get("acuse")),
                                   "cuando": store.iso(x["ts"])} for x in msgs],
@@ -527,6 +528,7 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
 
     return {
         "canal": c["nombre"], "tags": c.get("tags") or [],
+        "miembros": len(c.get("miembros", [])),
         "mensajes": [{"seq": x["seq"], "de": x["de"], "para": x.get("para"),
                       "texto": x["texto"], "acuse": bool(x.get("acuse")),
                       "cuando": store.iso(x["ts"])} for x in msgs],

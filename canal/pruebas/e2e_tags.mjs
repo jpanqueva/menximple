@@ -14,7 +14,7 @@ const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 const PUENTE = fileURLToPath(new URL('../menx-canal.mjs', import.meta.url))
 const S = Date.now().toString().slice(-6)
-const CON = 'e2e-tags-' + S, SIN = 'e2e-sintags-' + S, MUDO = 'e2e-sinacuse-' + S
+const CON = 'canal-p' + S + '-voz', SIN = 'canal-p' + S + '-comunicacion', MUDO = 'canal-p' + S + '-avisos'
 const AISLADO = join(tmpdir(), 'menx-pruebas-' + process.pid)
 
 function entorno() {
@@ -48,12 +48,13 @@ const espera = (s) => new Promise((x) => setTimeout(x, s * 1000))
 
 const A = await abrir('a')   // el que recibe
 const B = await abrir('b')   // el que escribe
-await call(A, 'canal_identificarse', { agente: 'tags-recibe-' + S })
-await call(B, 'canal_identificarse', { agente: 'tags-escribe-' + S })
+await call(A, 'canal_identificarse', { agente: 'agt-eqa-prueba-recibe' })
+await call(B, 'canal_identificarse', { agente: 'agt-eqb-prueba-escribe' })
 
 console.log('== crear con tags desde el puente ==')
+await call(B, 'canal_registro_crear', { clase: 'ambito', nombre: 'p' + S, tipo: 'proyecto' })
 let r = await call(B, 'canal_crear', { canal: CON, descripcion: 'con tags', tags: ['Proyecto:E2E', 'tipo:voz'] })
-chk(!r.error && JSON.stringify(r.json?.tags) === '["proyecto:e2e","tipo:voz"]', `canal_crear guarda los tags normalizados -> ${JSON.stringify(r.json?.tags)}`)
+chk(!r.error && JSON.stringify(r.json?.tags) === `["proyecto:e2e","tipo:voz","proyecto:p${S}"]`, `canal_crear guarda los tags normalizados y añade el ámbito -> ${JSON.stringify(r.json?.tags)}`)
 await call(B, 'canal_crear', { canal: SIN, descripcion: 'sin tags' })
 await call(B, 'canal_crear', { canal: MUDO, descripcion: 'sin acuse', tags: ['tipo:avisos', 'sin-acuse'] })
 for (const c of [CON, SIN, MUDO]) await call(A, 'canal_unirse', { canal: c })
@@ -61,7 +62,7 @@ for (const c of [CON, SIN, MUDO]) await call(A, 'canal_unirse', { canal: c })
 console.log('== canal_estado muestra los tags ==')
 r = await call(A, 'canal_estado')
 const mios = Object.fromEntries((r.json?.canales ?? []).map((c) => [c.nombre, c.tags]))
-chk(JSON.stringify(mios[CON]) === '["proyecto:e2e","tipo:voz"]' && JSON.stringify(mios[SIN]) === '[]', `-> ${JSON.stringify(mios)}`)
+chk(JSON.stringify(mios[CON]) === `["proyecto:e2e","tipo:voz","proyecto:p${S}"]` && JSON.stringify(mios[SIN]) === `["tipo:comunicacion","proyecto:p${S}"]`, `-> ${JSON.stringify(mios)}`)
 
 console.log('== los tags llegan dentro del evento ==')
 await call(B, 'canal_enviar', { canal: CON, texto: 'hola con tags' })
@@ -69,9 +70,9 @@ await call(B, 'canal_enviar', { canal: SIN, texto: 'hola sin tags' })
 await call(B, 'canal_enviar', { canal: MUDO, texto: 'hola sin acuse' })
 await espera(10)
 const msj = (canal) => recibido.a.find((m) => m.canal === canal && m.tipo === 'mensaje')
-chk(msj(CON)?.tags === 'proyecto:e2e,tipo:voz', `canal con tags -> tags="${msj(CON)?.tags}"`)
-chk(msj(SIN)?.texto === 'hola sin tags' && msj(SIN)?.tieneTags === false, 'canal sin tags: llega igual que siempre, sin atributo tags')
-chk(msj(MUDO)?.tags === 'tipo:avisos,sin-acuse', `canal sin-acuse -> tags="${msj(MUDO)?.tags}"`)
+chk(msj(CON)?.tags === `proyecto:e2e,tipo:voz,proyecto:p${S}`, `canal con tags -> tags="${msj(CON)?.tags}"`)
+chk(msj(SIN)?.texto === 'hola sin tags' && msj(SIN)?.tags === `tipo:comunicacion,proyecto:p${S}`, `canal sin tags propios: lleva los del nombre -> ${msj(SIN)?.tags}`)
+chk(msj(MUDO)?.tags === `tipo:avisos,sin-acuse,proyecto:p${S}`, `canal sin-acuse -> tags="${msj(MUDO)?.tags}"`)
 
 console.log('== sin-acuse apaga el acuse SOLO en ese canal ==')
 const acuses = (canal) => recibido.b.filter((m) => m.canal === canal && m.tipo === 'acuse').length

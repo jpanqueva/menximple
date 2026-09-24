@@ -61,7 +61,7 @@ await c.connect(new StdioClientTransport({ command: 'node', args: [PUENTE], env,
 const tool = (name, args = {}) => c.callTool({ name, arguments: args })
 
 console.log('== errores de tool no reciclan la sesión ==')
-await tool('canal_identificarse', { agente: 'e2e-sesiones-' + process.pid })
+await tool('canal_identificarse', { agente: 'agt-eqa-prueba-ses' })
 await dormir(2)
 const antes = abiertas.size
 let errores = 0

@@ -14,7 +14,8 @@ const APIKEY = process.env.MEMORY_APIKEY
 // fileURLToPath y no .pathname: en Windows .pathname devuelve /C:/... con
 // barra inicial, que no es una ruta valida y el proceso hijo no arranca.
 const PUENTE = fileURLToPath(new URL('../menx-canal.mjs', import.meta.url))
-const CANAL = 'e2e-acuse-' + Date.now().toString().slice(-6)
+const S = Date.now().toString().slice(-6)
+const CANAL = 'canal-p' + S + '-comunicacion'
 
 const AISLADO = join(tmpdir(), 'menx-pruebas-' + process.pid)
 
@@ -59,8 +60,9 @@ const call = async (c, tool, args = {}) => {
 
 const A = await abrir('a')   // el que recibe el encargo
 const B = await abrir('b')   // el que lo manda y espera
-await call(A, 'canal_identificarse', { agente: 'quien-trabaja' })
-await call(B, 'canal_identificarse', { agente: 'quien-espera' })
+await call(A, 'canal_identificarse', { agente: 'agt-eqa-prueba-trabaja' })
+await call(B, 'canal_identificarse', { agente: 'agt-eqb-prueba-espera' })
+await call(B, 'canal_registro_crear', { clase: 'ambito', nombre: 'p' + S, tipo: 'proyecto' })
 await call(B, 'canal_crear', { canal: CANAL, descripcion: 'acuse' })
 await call(A, 'canal_unirse', { canal: CANAL })
 
@@ -72,7 +74,7 @@ console.log('== el acuse vuelve solo a quien espera ==')
 await new Promise((x) => setTimeout(x, 9000))
 const acuses = recibido.b.filter((m) => m.tipo === 'acuse')
 chk(acuses.length === 1, `B recibio exactamente 1 acuse -> ${acuses.length}`)
-chk(acuses[0]?.de === 'quien-trabaja' && /procesando/.test(acuses[0]?.texto ?? ''),
+chk(acuses[0]?.de === 'agt-eqa-prueba-trabaja' && /procesando/.test(acuses[0]?.texto ?? ''),
     `y dice quien lo procesa -> ${acuses[0]?.texto?.slice(0, 60)}`)
 chk(recibido.a.filter((m) => m.tipo === 'acuse').length === 0,
     'A NO recibio acuse de su propio acuse (sin bucle)')
