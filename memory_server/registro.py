@@ -146,6 +146,20 @@ def crear(clase: str, nombre: str, cta: str | None = None, hostname: str | None 
     return _out(r)
 
 
+def anotar(agente: str, descripcion: str) -> dict:
+    """La FICHA de un agente: qué hace, en qué va. Es lo único editable del
+    catálogo, porque no es catálogo sino estado: quien coordina necesita saber qué
+    está haciendo cada worker sin preguntarle, y los workers de una sala ya no
+    tienen un canal propio donde dejarlo."""
+    n = tocar_agente(agente)
+    r = _get("agente", n)
+    r["descripcion"] = (descripcion or "").strip()[:600] or None
+    r["visto"] = store.now_ts()
+    store.upsert(store.REGISTRO, r["_id"], r)
+    _CACHE[("agente", n)] = (_time.monotonic(), dict(r))
+    return _out(r)
+
+
 def sembrar() -> None:
     """Las actividades base, si faltan. Se llama al arrancar el hub."""
     try:

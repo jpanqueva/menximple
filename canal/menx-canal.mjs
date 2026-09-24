@@ -354,6 +354,18 @@ const TOOLS = [
     },
   },
   {
+    name: 'canal_registro_anotar',
+    description:
+      'Escribe la FICHA de un agente (qué hace, en qué va, qué espera; hasta 600 ' +
+      'caracteres). La lee cualquiera con canal_registro_ver(clase="agente"). ' +
+      'Sin `agente`, es la tuya.',
+    inputSchema: {
+      type: 'object',
+      properties: { agente: { type: 'string' }, descripcion: { type: 'string' } },
+      required: ['descripcion'],
+    },
+  },
+  {
     name: 'canal_registro_crear',
     description:
       'Da de alta un equipo (necesita hostname y tipo pc|servidor), un ámbito ' +
@@ -458,6 +470,11 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         ...(a.clase ? { clase: a.clase } : {}), ...(a.nombre ? { nombre: a.nombre } : {}),
         ...(a.hostname ? { hostname: a.hostname } : {}),
       }))
+    }
+    if (req.params.name === 'canal_registro_anotar') {
+      const quien = String(a.agente ?? '').trim().toLowerCase() || agente
+      if (!quien) return mal(SIN_IDENTIDAD)
+      return ok(await llamar('registro_anotar', { agente: quien, descripcion: a.descripcion ?? '' }))
     }
     if (req.params.name === 'canal_registro_crear') {
       const r = await llamar('registro_crear', {

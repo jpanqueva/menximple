@@ -310,6 +310,15 @@ def registro_crear(clase: str, nombre: str, hostname: str | None = None,
               descripcion)
 
 
+@mcp.tool
+def registro_anotar(agente: str, descripcion: str) -> dict:
+    """Escribe la FICHA de un agente (hasta 600 caracteres): qué hace, en qué va,
+    qué espera. Es lo único del catálogo que se edita: es estado, no catálogo. La
+    mantiene quien coordina (el CEO sobre sus workers) o el propio agente. Se lee
+    con `registro_ver(clase='agente')`."""
+    return _g(registro.anotar, agente, descripcion)
+
+
 # --- Canales entre agentes ---
 #
 # Un canal es una SALA de agentes (sin tope), que pueden estar en máquinas y

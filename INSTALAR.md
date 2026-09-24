@@ -125,10 +125,22 @@ las tools `canal_*` pero **no te llega ningún mensaje**: parece instalado y est
 ## 6. Comprobar
 
 1. En la sesión: `muéstrame el árbol de mis memorias` → responde el hub.
-2. `identifícate en los canales de menx como <nombre-reconocible>` → `canal_estado`
-   debe mostrar tu identidad y tus canales.
-3. La barra de estado debe decir algo como `menx: <tu nombre> · N canales` y la
-   versión del puente. Si dice **ACTUALIZA**, repite el paso 1 y reinicia.
+2. `canal_estado` debe decir en qué **equipo** estás (lo saca del hostname y del
+   catálogo). Si dice que el equipo no está registrado, pídele al administrador
+   que lo registre (o, si eres el administrador: `registro_crear` con clase
+   `equipo`, el hostname y el tipo).
+3. `identifícate en los canales como <ámbito>/<rol>` → el agente llama a
+   `canal_identificarse` con `ambito` y `rol` y queda como
+   `agt-<equipo>-<ámbito>-<rol>`. Los nombres son estrictos: minúsculas y dígitos,
+   con equipo y ámbito del catálogo (`registro_ver`). Un nombre libre se rechaza.
+4. La barra de estado debe decir `menx: agt-… · N canales | equipo <x> · canal
+   <versión> ✓ · hub ✓ · selector <versión>`. Si dice **REINICIA** o
+   **ACTUALIZA**, haz eso; si dice **equipo ✗ sin registrar**, ver el punto 2.
+
+Canales: `canal-<equipo1>-<equipo2>-<actividad>` (equipos en orden alfabético) o
+`canal-<ámbito>-<actividad>`; actividades: comunicacion, soporte, ayuda, trabajo,
+avisos, devops, voz, pantalla. Un canal es una sala sin tope de miembros; un
+mensaje con `para` va dirigido a uno (solo a él se le empuja y solo él acusa).
 
 ## Si algo falla
 
@@ -138,7 +150,8 @@ las tools `canal_*` pero **no te llega ningún mensaje**: parece instalado y est
 | `503 Service Temporarily Unavailable` intermitente | Puente viejo fugando conexiones (tope de 60 por IP). Paso 1 y reiniciar Claude Code |
 | `already exists in user config` | Quita el MCP con `claude mcp remove --scope user <nombre>` y repite |
 | Existen las tools `canal_*` pero no llega nada | Abriste sin el flag del paso 5 |
-| "sin identidad" | Falta identificarte en esta conversación (paso 6.2) |
+| "sin identidad" | Falta identificarte en esta conversación (paso 6.3) |
+| "nombre de agente inválido" / "no está en el catálogo" | Nomenclatura estricta: agt-<equipo>-<ámbito>-<rol> con equipo y ámbito registrados (`registro_ver`) |
 | El selector no abre ventana | Solo abre con escritorio; por SSH cae a modo chat |
 | La barra no aparece (Windows) | Backslashes en la ruta del `statusLine`; usa `/` |
 | `PermissionError [WinError 32]` al actualizar con pipx | Cierra todas las ventanas de Claude Code y repite |
