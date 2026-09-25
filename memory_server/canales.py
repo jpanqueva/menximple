@@ -175,6 +175,18 @@ def _miembro(c: dict, agente: str) -> dict:
                        "entra primero con `unirse_canal`")
 
 
+def _pendientes_de(c: dict, m: dict) -> int:
+    """Cuántos mensajes le faltan por leer a un miembro DE VERDAD: los que van
+    para él o para todos, y no son suyos. `seq - visto` contaba también lo
+    dirigido a otros, y en una sala eso daba "34 pendientes" a agentes al día."""
+    visto = m.get("visto", 0)
+    if c.get("seq", 0) <= visto:
+        return 0
+    msgs = store.scroll(store.MENSAJES, must=[store.cond("canal_id", c["_id"]),
+                                               store.cond_mayor("seq", visto)], limit=500)
+    return sum(1 for x in msgs if x.get("de") != m["agente"] and x.get("para") in (None, m["agente"]))
+
+
 def _out(c: dict) -> dict:
     seq = c.get("seq", 0)
     return {
@@ -187,7 +199,7 @@ def _out(c: dict) -> dict:
         # La ficha de cada miembro: con esto se ve, antes de escribirle a alguien,
         # si está vivo, cuándo habló por última vez y cuánto tiene sin leer.
         "miembros": [{"agente": m["agente"],
-                      "pendientes": max(0, seq - m.get("visto", 0)),
+                      "pendientes": _pendientes_de(c, m),
                       "ultimo_escribio": store.iso(m.get("escribio")),
                       "ultimo_leyo": store.iso(m.get("leyo")),
                       "desde": store.iso(m.get("desde"))} for m in c.get("miembros", [])],
@@ -483,7 +495,13 @@ def recibir_todo(agente: str, espera: int = 0, marcar: bool = True) -> dict:
         for c in _canales_de(agente):
             visto = next(m.get("visto", 0) for m in c["miembros"] if m["agente"] == agente)
             msgs, hasta = _pendientes(c, visto, agente)
-            if marcar and hasta > visto:
+            # Si hay mensajes nuevos pero NINGUNO es para este agente (todos
+            # dirigidos a otros, o propios), se avanza la marca aunque sea con
+            # marcar=False: no hay nada que confirmar y, sin esto, el puente no
+            # confirmaba nunca, "visto" se quedaba quieto y "pendientes" contaba
+            # mensajes ajenos (tres agentes con 34 "pendientes" que no eran suyos,
+            # 24-sep; parecían caídos y estaban bien).
+            if hasta > visto and (marcar or not msgs):
                 _marcar_visto(c["nombre"], agente, hasta)
             if msgs:
                 salida.append({
@@ -523,7 +541,7 @@ def recibir(canal: str, agente: str, espera: int = 0, marcar: bool = True) -> di
         time.sleep(1.0)
         c = _canal(canal)          # releer: el otro pudo escribir mientras dormíamos
 
-    if marcar and hasta > desde:
+    if hasta > desde and (marcar or not msgs):     # ver el mismo caso en recibir_todo
         _marcar_visto(c["nombre"], agente, hasta)
 
     return {

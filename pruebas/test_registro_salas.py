@@ -96,15 +96,26 @@ chk([m["texto"] for c in r3["canales"] for m in c["mensajes"]] == ["aviso para t
 rc = ch.recibir_todo("agt-reg1-amb1-ceo")
 chk([m["texto"] for c in rc["canales"] for m in c["mensajes"]] == ["ceo, terminé"], "el ceo recibe lo dirigido a él")
 
+print("== lo dirigido a otros no queda como pendiente de nadie ==")
+ch.enviar_mensaje("canal-amb1-trabajo", "agt-reg1-amb1-ceo", "w2, lo tuyo", para="agt-eqb-amb1-w2")
+r = ch.recibir_todo("agt-eqc-amb1-w3", marcar=False)     # como el puente: nada para w3
+chk(r["canales"] == [], "w3 no recibe lo dirigido a w2")
+c3 = next(x for x in ch.listar_canales("jhon") if x["nombre"] == "canal-amb1-trabajo")
+f3 = {m["agente"]: m for m in c3["miembros"]}
+chk(f3["agt-eqc-amb1-w3"]["pendientes"] == 0, f"y no le queda como pendiente -> {f3['agt-eqc-amb1-w3']['pendientes']}")
+chk(f3["agt-eqb-amb1-w2"]["pendientes"] == 1, f"a w2 sí -> {f3['agt-eqb-amb1-w2']['pendientes']}")
+ch.recibir("canal-amb1-trabajo", "agt-eqb-amb1-w2")
+
 print("== fichas de miembros ==")
+ch.enviar_mensaje("canal-amb1-trabajo", "agt-eqb-amb1-w2", "aviso general: cierro a las 6")   # para todos
 c = next(x for x in ch.listar_canales("jhon") if x["nombre"] == "canal-amb1-trabajo")
 f = {m["agente"]: m for m in c["miembros"]}
 chk(f["agt-reg1-amb1-ceo"]["ultimo_escribio"] is not None, "se sabe cuándo escribió el ceo")
 chk(f["agt-eqa-amb1-w1"]["ultimo_escribio"] is None and f["agt-eqa-amb1-w1"]["ultimo_leyo"] is not None,
     "w1 no ha escrito pero sí leyó")
-chk(f["agt-eqa-amb1-w1"]["pendientes"] == 1 and f["agt-eqc-amb1-w3"]["pendientes"] == 0,
-    f"pendientes por miembro -> w1 {f['agt-eqa-amb1-w1']['pendientes']}, w3 {f['agt-eqc-amb1-w3']['pendientes']}")
-chk(c["mensajes"] == 3 and c["ultimo_mensaje"] is not None, "total de mensajes y hora del último")
+chk(f["agt-eqa-amb1-w1"]["pendientes"] == 1 and f["agt-eqb-amb1-w2"]["pendientes"] == 0 and f["agt-reg1-amb1-ceo"]["pendientes"] == 1,
+    f"pendientes = solo lo que es para cada uno -> w1 {f['agt-eqa-amb1-w1']['pendientes']}, w2 (lo escribió) {f['agt-eqb-amb1-w2']['pendientes']}, ceo {f['agt-reg1-amb1-ceo']['pendientes']}")
+chk(c["mensajes"] == 5 and c["ultimo_mensaje"] is not None, "total de mensajes y hora del último")
 
 ch.borrar_canal("canal-amb1-trabajo", "jhon")
 print()
