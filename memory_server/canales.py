@@ -452,6 +452,42 @@ def mis_canales(agente: str, tags=None) -> list[dict]:
     return [_out(c) for c in _canales_de(_agente(agente)) if _con_tags(c, pedidos)]
 
 
+def mis_mensajes(agente: str, ultimos: int = 20, generales: bool = False,
+                 canal: str | None = None) -> dict:
+    """Los últimos mensajes DIRIGIDOS a este agente (`para` = él), de cualquier
+    canal y de cualquier remitente, sin tocar lo leído/no leído. Solo lectura.
+
+    Existe para recuperar lo que se perdió en el camino: una consola cuya
+    organización tiene los canales bloqueados (Claude Code descarta los empujes en
+    silencio, pero el puente los da por entregados), un puente huérfano que se
+    comió los mensajes, o simplemente "¿qué me escribieron hoy?". Con
+    `generales=True` incluye también los mensajes para todos de sus canales."""
+    agente = _agente(agente)
+    n = max(1, min(int(ultimos or 20), 200))
+    if canal:
+        cs = [_canal(canal)]
+        _miembro(cs[0], agente)
+    else:
+        cs = _canales_de(agente)
+    nombres = {c["_id"]: c["nombre"] for c in cs}
+    out = []
+    if nombres:
+        dirigidos = store.scroll(store.MENSAJES, must=[store.cond("para", agente),
+                                                      store.cond_any("canal_id", list(nombres))], limit=1000)
+        out.extend(dirigidos)
+        if generales:
+            for cid in nombres:
+                ms = store.scroll(store.MENSAJES, must=[store.cond("canal_id", cid)], limit=1000)
+                out.extend(m for m in ms if m.get("para") is None and m.get("de") != agente)
+    out = [m for m in out if not m.get("acuse")]
+    out.sort(key=lambda m: m.get("ts", 0), reverse=True)
+    out = out[:n]
+    return {"agente": agente, "total": len(out), "mensajes": [
+        {"canal": nombres.get(m["canal_id"]), "seq": m["seq"], "de": m["de"],
+         "para": m.get("para") or "todos", "cuando": store.iso(m.get("ts")), "texto": m["texto"]}
+        for m in reversed(out)]}
+
+
 @_de_a_uno
 def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     """Marca como leído hasta `hasta`. Va aparte de `recibir_todo` a propósito.

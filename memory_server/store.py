@@ -146,7 +146,7 @@ def ensure_collections() -> None:
     })
     _idx(CANALES, {"nombre": kw, "cerrado": bol, "updated_at": flt})
     # `seq` ordena los mensajes de un canal; `entregado_a` dice quién ya lo leyó.
-    _idx(MENSAJES, {"canal_id": kw, "de": kw, "seq": PayloadSchemaType.INTEGER,
+    _idx(MENSAJES, {"canal_id": kw, "de": kw, "para": kw, "seq": PayloadSchemaType.INTEGER,
                     "ts": flt})
     _idx(ARCHIVOS, {"cuenta": kw, "token": kw, "created_at": flt})
     _idx(REGISTRO, {"clase": kw, "nombre": kw, "hostname": kw, "equipo": kw, "ambito": kw})

@@ -37,7 +37,7 @@ import { join } from 'node:path'
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-const VERSION = '0.5.1'
+const VERSION = '0.5.2'
 
 // Estado del hub visto desde este puente, para la barra de estado: versión que
 // declaró al conectar, último sondeo bueno y el último error. Se escribe en el
@@ -354,6 +354,21 @@ const TOOLS = [
     },
   },
   {
+    name: 'canal_mis_mensajes',
+    description:
+      'Los últimos mensajes DIRIGIDOS a ti, de cualquier canal y remitente (con ' +
+      'quién, cuándo y en qué canal). Solo lectura. Úsala si sospechas que no te ' +
+      'están llegando (te escriben y no ves nada), al volver de una sesión caída, ' +
+      'o cuando te pidan "lee tus mensajes". `generales` incluye los de todos.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ultimos: { type: 'number', description: 'Cuántos (por defecto 20, máximo 200)' },
+        generales: { type: 'boolean' }, canal: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'canal_registro_anotar',
     description:
       'Escribe la FICHA de un agente (qué hace, en qué va, qué espera; hasta 600 ' +
@@ -469,6 +484,13 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
       return ok(await llamar('registro_ver', {
         ...(a.clase ? { clase: a.clase } : {}), ...(a.nombre ? { nombre: a.nombre } : {}),
         ...(a.hostname ? { hostname: a.hostname } : {}),
+      }))
+    }
+    if (req.params.name === 'canal_mis_mensajes') {
+      if (!agente) return mal(SIN_IDENTIDAD)
+      return ok(await llamar('mis_mensajes', {
+        agente, ultimos: Number(a.ultimos) || 20, generales: a.generales === true,
+        ...(a.canal ? { canal: a.canal } : {}),
       }))
     }
     if (req.params.name === 'canal_registro_anotar') {

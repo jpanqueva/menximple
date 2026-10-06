@@ -117,6 +117,15 @@ chk(f["agt-eqa-amb1-w1"]["pendientes"] == 1 and f["agt-eqb-amb1-w2"]["pendientes
     f"pendientes = solo lo que es para cada uno -> w1 {f['agt-eqa-amb1-w1']['pendientes']}, w2 (lo escribió) {f['agt-eqb-amb1-w2']['pendientes']}, ceo {f['agt-reg1-amb1-ceo']['pendientes']}")
 chk(c["mensajes"] == 5 and c["ultimo_mensaje"] is not None, "total de mensajes y hora del último")
 
+print("== mis_mensajes: lo dirigido a mí, de cualquier remitente, sin tocar lo leído ==")
+r = ch.mis_mensajes("agt-eqa-amb1-w1", ultimos=10)
+chk([m["texto"][:7] for m in r["mensajes"]] == ["empiezo"] and r["mensajes"][0]["de"] == "agt-reg1-amb1-ceo",
+    f"trae solo lo dirigido a w1, con remitente -> {[(m['de'], m['texto'][:7]) for m in r['mensajes']]}")
+r = ch.mis_mensajes("agt-eqa-amb1-w1", ultimos=10, generales=True)
+chk(len(r["mensajes"]) >= 2 and any(m["para"] == "todos" for m in r["mensajes"]), "con generales=True incluye los de todos")
+c4 = next(x for x in ch.listar_canales("jhon") if x["nombre"] == "canal-amb1-trabajo")
+chk({m["agente"]: m for m in c4["miembros"]}["agt-eqa-amb1-w1"]["pendientes"] == 1, "y no cambió lo pendiente")
+
 ch.borrar_canal("canal-amb1-trabajo", "jhon")
 print()
 print("TODO OK" if not fallos else f"{len(fallos)} FALLOS: {fallos}")

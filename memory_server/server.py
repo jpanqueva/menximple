@@ -446,6 +446,18 @@ async def recibir_de_todos(agente: str, espera: int = 0, marcar: bool = True) ->
 
 
 @mcp.tool
+def mis_mensajes(agente: str, ultimos: int = 20, generales: bool = False,
+                 canal: str | None = None) -> list | dict:
+    """Los últimos `ultimos` mensajes DIRIGIDOS a ti (`para` = tu nombre), de
+    cualquier canal y remitente, con quién los mandó, cuándo y en qué canal. Solo
+    lectura: no marca nada como leído. Úsala para recuperar mensajes que no te
+    aparecieron (canales bloqueados por la organización, sesión caída) o para
+    repasar lo que te escribieron. `generales=True` agrega los mensajes para todos;
+    `canal` limita a uno."""
+    return _g(canales.mis_mensajes, agente, ultimos, generales, canal)
+
+
+@mcp.tool
 def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     """Da por leído hasta ese `seq`. La usa el puente cuando el mensaje ya entró
     de verdad en la sesión; a mano no hace falta."""
