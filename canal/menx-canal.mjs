@@ -37,7 +37,7 @@ import { join } from 'node:path'
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-const VERSION = '0.5.2'
+const VERSION = '0.5.3'
 
 // Estado del hub visto desde este puente, para la barra de estado: versión que
 // declaró al conectar, último sondeo bueno y el último error. Se escribe en el
@@ -306,12 +306,18 @@ const SIN_IDENTIDAD =
 // El nombre del agente empieza por el equipo, y el equipo es un hecho de la
 // máquina, no una elección: se lee el hostname y se busca en el catálogo del
 // hub. Si no está, el agente tiene que pedirle al usuario que lo registre.
+// En GCP el hostname es el FQDN (radicapro-agentes.us-east1-b.c.<proyecto>.internal)
+// y el agente de Google lo restaura al arrancar: si el nombre completo no está en
+// el catálogo, se prueba la parte antes del primer punto.
 const HOST = hostname().toLowerCase()
+const HOST_CORTO = HOST.split('.')[0]
 let equipoLocal = null           // { nombre, tipo, dueno } o null si no está registrado
 let equipoError = null
 async function averiguarEquipo() {
   try {
-    const r = await llamar('registro_ver', { clase: 'equipo', hostname: HOST })
+    let r = await llamar('registro_ver', { clase: 'equipo', hostname: HOST })
+    if (!(Array.isArray(r) && r[0]) && HOST_CORTO !== HOST)
+      r = await llamar('registro_ver', { clase: 'equipo', hostname: HOST_CORTO })
     equipoLocal = Array.isArray(r) && r[0] ? r[0] : null
     equipoError = equipoLocal ? null :
       `este equipo (hostname "${HOST}") no está en el catálogo de menx`
