@@ -46,7 +46,7 @@ _sin_key_visto: dict[str, float] = {}
 
 
 def _restringir(agente: str | None = None, canal: str | None = None,
-                prohibido: str | None = None) -> None:
+                prohibido: str | None = None, solo_apikey: bool = False) -> None:
     """Límites de las cuentas restringidas (ver auth.py). Para las demás no cambia
     nada. Las tools de canal históricamente no piden apikey: sin ella se deja
     pasar como siempre (salvo CANALES_EXIGEN_APIKEY=1), pero queda en el log una
@@ -55,13 +55,13 @@ def _restringir(agente: str | None = None, canal: str | None = None,
     if not key:
         if _CANALES_EXIGEN_APIKEY:
             raise MemoriaError("falta apikey: envía el header 'X-API-Key' de la cuenta")
-        quien = f"{prohibido or 'canal'}:{agente or '-'}"
+        quien = f"{prohibido or ('registro_ver' if solo_apikey else 'canal')}:{agente or '-'}"
         if time.time() - _sin_key_visto.get(quien, 0) > 3600:
             _sin_key_visto[quien] = time.time()
             print(f"  [canales] llamada SIN apikey: {quien} canal={canal or '-'}", flush=True)
         return
     cta = auth.cuenta_de(key)
-    if not auth.restringida(cta):
+    if solo_apikey or not auth.restringida(cta):
         return
     if prohibido:
         raise MemoriaError(f"cuenta restringida: no puede usar {prohibido}; un administrador "
@@ -325,6 +325,7 @@ def registro_ver(clase: str | None = None, nombre: str | None = None,
     Sin argumentos devuelve todo (es corto). `clase` filtra; `nombre` busca uno;
     `hostname` sirve para saber qué equipo es esta máquina (`hostname` en la
     consola) antes de identificarte."""
+    _g(_restringir, solo_apikey=True)
     return _g(registro.ver, clase, nombre, hostname)
 
 

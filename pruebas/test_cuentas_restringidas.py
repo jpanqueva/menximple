@@ -63,7 +63,21 @@ ok(J, "recibir_de_todos", "recibir_de_todos de jhon", agente="agt-eqa-prueba-j1"
 ok(J, "mis_mensajes", "mis_mensajes de jhon", agente="agt-eqa-prueba-j1")
 ok(J, "registro_anotar", "jhon anota ficha", agente="agt-eqa-prueba-j1", descripcion="prueba")
 
+INTERRUPTOR = os.environ.get("INTERRUPTOR") == "1"
+if INTERRUPTOR:
+    print("== interruptor PRENDIDO: sin apikey no pasa nada de canales ni el catálogo ==")
+    no(Anon, "mis_canales", "falta apikey", "mis_canales sin apikey", agente="agt-eqa-prueba-j1")
+    no(Anon, "enviar_mensaje", "falta apikey", "enviar sin apikey", canal="canal-eqa-eqb-comunicacion", agente="agt-eqa-prueba-j1", texto="anon")
+    no(Anon, "recibir_de_todos", "falta apikey", "recibir_de_todos sin apikey", agente="agt-eqa-prueba-j1")
+    no(Anon, "registro_ver", "falta apikey", "registro_ver sin apikey")
+    no(Anon, "registro_anotar", "falta apikey", "registro_anotar sin apikey", agente="agt-eqa-prueba-j1", descripcion="x")
+    ok(J, "registro_ver", "registro_ver con apikey")
+    ok(J, "mis_canales", "con apikey sigue igual", agente="agt-eqa-prueba-j1")
+    print("TODO OK" if not fallos else f"{len(fallos)} FALLOS: {fallos}")
+    raise SystemExit(1 if fallos else 0)
 print("== sin apikey: pasa como siempre (interruptor apagado) ==")
+ok(Anon, "registro_ver", "registro_ver sin apikey (apagado)")
+ok(Rc, "registro_ver", "registro_ver con cuenta restringida (solo lectura)")
 ok(Anon, "mis_canales", "mis_canales sin apikey", agente="agt-eqa-prueba-j1")
 ok(Anon, "enviar_mensaje", "enviar sin apikey", canal="canal-eqa-eqb-comunicacion", agente="agt-eqa-prueba-j1", texto="anon")
 
