@@ -271,11 +271,23 @@ def crear_cuenta(slug: str, nombre: str | None = None) -> dict:
             "created_at": store.iso(payload["created_at"])}
 
 
+def marcar_restringida(slug: str, si: bool = True) -> dict:
+    """Pone o quita la bandera `restringida` (ver auth.py). Solo admin."""
+    pid = store.id_desde(slug)
+    p = store.get(store.CUENTAS, pid)
+    if not p:
+        raise MemoriaError(f"no existe la cuenta '{slug}'")
+    p["restringida"] = bool(si)
+    store.upsert(store.CUENTAS, pid, p)
+    return {"cuenta": slug, "restringida": p["restringida"]}
+
+
 def listar_cuentas() -> list[dict]:
     pts = store.scroll(store.CUENTAS, limit=1000)
     pts.sort(key=lambda p: p.get("slug", ""))
     return [{"cuenta": p["slug"], "nombre": p.get("nombre", p["slug"]),
-             "created_at": store.iso(p.get("created_at"))} for p in pts]
+             "created_at": store.iso(p.get("created_at")),
+             **({"restringida": True} if p.get("restringida") else {})} for p in pts]
 
 
 # --------------------------------------------------------------------------- #

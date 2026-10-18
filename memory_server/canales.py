@@ -441,6 +441,20 @@ def _pendientes(c: dict, desde: int, agente: str) -> tuple[list[dict], int]:
             msgs[-1]["seq"])
 
 
+def exigir_propio(cta: str, agente: str, canal: str | None = None) -> None:
+    """Para cuentas restringidas: el agente tiene que estar en ese canal (o, sin
+    canal, en todos los suyos) como miembro sellado con esta misma cuenta. Así no
+    puede hablar ni leer con el nombre de un agente de otra cuenta. Lo sin sellar
+    (cuenta None) tampoco vale: falla cerrado."""
+    agente = (agente or "").strip().lower()
+    cs = [_canal(canal)] if canal is not None else _canales_de(agente)
+    ms = [m for c in cs for m in c.get("miembros", []) if m["agente"] == agente]
+    if not ms or any(m.get("cuenta") != cta for m in ms):
+        raise MemoriaError(f"cuenta restringida: '{agente}' no es un miembro de esta cuenta"
+                           + (f" en '{canal}'" if canal else "") +
+                           "; solo se usan los canales donde un administrador la metió")
+
+
 def _canales_de(agente: str) -> list[dict]:
     return [c for c in store.scroll(store.CANALES, limit=500)
             if any(m["agente"] == agente for m in c.get("miembros", []))]

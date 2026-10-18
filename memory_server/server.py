@@ -4,10 +4,13 @@ La cuenta se deriva de la apikey (header X-API-Key) — no se pasa como argument
 Las tools envuelven el repositorio y traducen MemoriaError -> ToolError con mensaje
 accionable. Los errores inesperados se propagan (fail-fast, sin silenciar)."""
 import asyncio
+import os
+import time
 from urllib.parse import quote
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_headers
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
@@ -36,6 +39,34 @@ async def _ga(fn, *args, **kwargs):
         return await fn(*args, **kwargs)
     except MemoriaError as e:
         raise ToolError(str(e))
+
+
+_CANALES_EXIGEN_APIKEY = os.environ.get("CANALES_EXIGEN_APIKEY", "").lower() in ("1", "true", "si")
+_sin_key_visto: dict[str, float] = {}
+
+
+def _restringir(agente: str | None = None, canal: str | None = None,
+                prohibido: str | None = None) -> None:
+    """Límites de las cuentas restringidas (ver auth.py). Para las demás no cambia
+    nada. Las tools de canal históricamente no piden apikey: sin ella se deja
+    pasar como siempre (salvo CANALES_EXIGEN_APIKEY=1), pero queda en el log una
+    vez por hora y agente, para saber qué cliente falta antes de exigirla."""
+    key = auth.apikey_de_headers(get_http_headers() or {})
+    if not key:
+        if _CANALES_EXIGEN_APIKEY:
+            raise MemoriaError("falta apikey: envía el header 'X-API-Key' de la cuenta")
+        quien = f"{prohibido or 'canal'}:{agente or '-'}"
+        if time.time() - _sin_key_visto.get(quien, 0) > 3600:
+            _sin_key_visto[quien] = time.time()
+            print(f"  [canales] llamada SIN apikey: {quien} canal={canal or '-'}", flush=True)
+        return
+    cta = auth.cuenta_de(key)
+    if not auth.restringida(cta):
+        return
+    if prohibido:
+        raise MemoriaError(f"cuenta restringida: no puede usar {prohibido}; un administrador "
+                           "la mete en los canales que necesite")
+    canales.exigir_propio(cta, agente, canal)
 
 
 # --- Navegación ---
@@ -306,6 +337,7 @@ def registro_crear(clase: str, nombre: str, hostname: str | None = None,
     se crean aquí: se registran solos la primera vez que un nombre válido entra a
     un canal. Solo con el usuario diciéndolo: un catálogo no se llena por
     iniciativa propia. No hay editar ni borrar."""
+    _g(_restringir, prohibido="registro_crear")
     return _g(registro.crear, clase, nombre, auth.cuenta_actual(), hostname, tipo, dueno,
               descripcion)
 
@@ -316,6 +348,7 @@ def registro_anotar(agente: str, descripcion: str) -> dict:
     qué espera. Es lo único del catálogo que se edita: es estado, no catálogo. La
     mantiene quien coordina (el CEO sobre sus workers) o el propio agente. Se lee
     con `registro_ver(clase='agente')`."""
+    _g(_restringir, prohibido="registro_anotar")
     return _g(registro.anotar, agente, descripcion)
 
 
@@ -345,6 +378,7 @@ def crear_canal(nombre: str, descripcion: str | None = None,
     `tags` (opcional) dice QUÉ ES el canal; viajan con cada mensaje para que quien
     lo reciba sepa cómo tratarlo. Vocabulario recomendado: `proyecto:<nombre>`,
     `tipo:<voz|pantalla|avisos|devops|worker>`, `efimero`, `sin-acuse`."""
+    _g(_restringir, prohibido="crear_canal")
     return _g(canales.crear_canal, nombre, descripcion, agente, auth.cuenta_actual(), tags)
 
 
@@ -355,6 +389,7 @@ def editar_canal(canal: str, descripcion: str | None = None,
     se toca. Los `tags` REEMPLAZAN a los anteriores (`[]` los quita todos).
 
     Solo puedes editar un canal que creaste o en el que estás."""
+    _g(_restringir, prohibido="editar_canal")
     return _g(canales.editar_canal, canal, descripcion, tags, auth.cuenta_actual())
 
 
@@ -383,6 +418,7 @@ def borrar_canal(canal: str) -> dict:
     se puede restaurar, a diferencia de las memorias. Confírmalo con el usuario.
 
     Solo puedes borrar un canal que creaste o en el que estás."""
+    _g(_restringir, prohibido="borrar_canal")
     return _g(canales.borrar_canal, canal, auth.cuenta_actual())
 
 
@@ -393,12 +429,14 @@ def unirse_canal(canal: str, agente: str) -> dict:
     (si no, se rechaza y te dice por qué). Un canal no tiene tope de miembros;
     **puedes estar en varios a la vez**. Volver a entrar no es error: retomas
     donde ibas."""
+    _g(_restringir, prohibido="unirse_canal")
     return _g(canales.unirse_canal, canal, agente, auth.cuenta_actual())
 
 
 @mcp.tool
 def salir_canal(canal: str, agente: str) -> dict:
     """Deja el canal y libera el cupo."""
+    _g(_restringir, agente, canal)
     return _g(canales.salir_canal, canal, agente)
 
 
@@ -415,6 +453,7 @@ def enviar_mensaje(canal: str, agente: str, texto: str, acuse: bool = False,
 
     `acuse=True` lo marca como acuse de recibo, para que el otro lado no conteste
     un acuse con otro acuse. Normalmente no lo pones tú: lo manda el puente solo."""
+    _g(_restringir, agente, canal)
     return _g(canales.enviar_mensaje, canal, agente, texto, acuse, para)
 
 
@@ -425,6 +464,7 @@ async def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
 
     Úsala para esperar la respuesta después de preguntar algo. Si vuelve vacía, el
     otro no ha contestado: puedes reintentar o seguir con lo tuyo."""
+    _g(_restringir, agente, canal)
     return await _ga(canales.recibir_async, canal, agente, espera)
 
 
@@ -432,6 +472,7 @@ async def recibir_mensajes(canal: str, agente: str, espera: int = 0) -> dict:
 def mis_canales(agente: str, tags: list[str] | None = None) -> list[dict]:
     """En qué canales estás con ese nombre de agente, con sus tags. `tags` filtra
     igual que en `listar_canales`."""
+    _g(_restringir, agente)
     return _g(canales.mis_canales, agente, tags)
 
 
@@ -442,6 +483,7 @@ async def recibir_de_todos(agente: str, espera: int = 0, marcar: bool = True) ->
 
     `marcar=False` no da nada por leído — solo para quien vaya a confirmar
     después con `confirmar_entrega`."""
+    _g(_restringir, agente)
     return await _ga(canales.recibir_todo_async, agente, espera, marcar)
 
 
@@ -454,6 +496,7 @@ def mis_mensajes(agente: str, ultimos: int = 20, generales: bool = False,
     aparecieron (canales bloqueados por la organización, sesión caída) o para
     repasar lo que te escribieron. `generales=True` agrega los mensajes para todos;
     `canal` limita a uno."""
+    _g(_restringir, agente, canal)
     return _g(canales.mis_mensajes, agente, ultimos, generales, canal)
 
 
@@ -461,6 +504,7 @@ def mis_mensajes(agente: str, ultimos: int = 20, generales: bool = False,
 def confirmar_entrega(canal: str, agente: str, hasta: int) -> dict:
     """Da por leído hasta ese `seq`. La usa el puente cuando el mensaje ya entró
     de verdad en la sesión; a mano no hace falta."""
+    _g(_restringir, agente, canal)
     return _g(canales.confirmar_entrega, canal, agente, hasta)
 
 

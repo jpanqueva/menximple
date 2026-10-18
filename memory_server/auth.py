@@ -34,7 +34,21 @@ def cuenta_de(key: str | None) -> str:
     pts = store.scroll(store.CUENTAS, must=[store.cond("apikey", key)], limit=1)
     if not pts:
         raise MemoriaError("apikey inválida")
-    return pts[0]["slug"]
+    slug = pts[0]["slug"]
+    (_RESTRINGIDAS.add if pts[0].get("restringida") else _RESTRINGIDAS.discard)(slug)
+    return slug
+
+
+# Cuentas RESTRINGIDAS (`restringida: true` en su ficha; la pone un admin): son
+# para agentes que atienden a terceros. No crean ni entran a canales ni tocan el
+# catálogo; solo usan los canales a los que un admin las metió, y solo como
+# miembros sellados con SU cuenta. Las cuentas sin la bandera no cambian en nada.
+# Se anota al validar la apikey, que ya trae la ficha: no cuesta otra consulta.
+_RESTRINGIDAS: set[str] = set()
+
+
+def restringida(cta: str) -> bool:
+    return cta in _RESTRINGIDAS
 
 
 def apikey_de_headers(headers) -> str | None:
