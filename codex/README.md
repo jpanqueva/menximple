@@ -112,8 +112,23 @@ limitada. Para compartir con otro agente, publica el archivo y envía su URL por
 ## Barra de Codex y monitor de MENX
 
 La barra nativa se configura escribiendo `/statusline` en Codex: permite elegir
-modelo, contexto, límites, rama y otros campos predefinidos. El script de barra
-de Claude no se conecta a esa barra.
+modelo, contexto, límites, rama y otros campos predefinidos. Para mostrar MENX,
+activa **Thread name** (`thread-name`): se usa el nombre visible de la conversación
+como texto de estado, por ejemplo:
+
+```text
+MENX: agt-equipo-menx-codex | 1 canal: canal-menx-trabajo
+```
+
+El agente actualiza ese nombre mediante `set_thread_title` después de identificarse
+o cambiar de canales. El puente devuelve `statusline` con el texto calculado y sus
+instrucciones indican mantenerlo sincronizado. Es una actualización por el agente,
+no un campo personalizado que Codex recalcule por sí solo. Cambia también el nombre
+que se ve en la lista de conversaciones. Si la sesión no ofrece esa herramienta,
+se puede copiar el texto con `/rename`; el monitor de abajo sigue disponible.
+
+La configuración equivalente de la barra es `tui.status_line` incluyendo
+`"thread-name"`. El script de barra de Claude no se conecta a esa barra.
 
 Para ver MENX, abre otro panel de terminal en este repositorio:
 

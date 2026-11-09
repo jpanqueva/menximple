@@ -216,7 +216,9 @@ test('Codex: sesión explícita, cola fallida no confirma, reintenta sin duplica
   assert.equal((await otra.call('canal_estado')).data.agente, null)
   await otra.client.close()
   const recuperada = await h.abrir(true, sesion)
-  assert.equal((await recuperada.call('canal_estado')).data.agente, AGENTE)
+  const estado = (await recuperada.call('canal_estado')).data
+  assert.equal(estado.agente, AGENTE)
+  assert.equal(estado.statusline, `MENX: ${AGENTE} | 1 canal: canal-menx-trabajo`)
 })
 
 test('solo la instancia que tomó el buzón entrega al volver de un long-poll', async (t) => {

@@ -34,6 +34,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { entregarCodex, cancelarEntregas } from './entrega-codex.mjs'
+import { etiquetaCodex } from './etiqueta-codex.mjs'
 
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
@@ -143,7 +144,12 @@ const mcp = new Server(
         'con source="menx-canal", content y meta (canal, de, para, seq, tags, tipo). ' +
         'El acuse significa guardado en la cola de Codex, no que el modelo ya lo leyó. ' +
         'Si canal_estado no tiene sesion, consulta CODEX_THREAD_ID en tu entorno de ' +
-        'ejecución y pásalo como sesion_codex en canal_identificarse. No inventes un id.\n' : '') +
+        'ejecución y pásalo como sesion_codex en canal_identificarse. No inventes un id. ' +
+        'BARRA: las respuestas de identidad y estado incluyen statusline con identidad y canales. ' +
+        'Después de identificarte, crear, unirte o salir de un canal, actualiza el nombre de ' +
+        'ESTA conversación con ese texto mediante set_thread_title, si está disponible. ' +
+        'Así se muestra en el campo thread-name de /statusline. Si la respuesta no trae ' +
+        'statusline, consulta canal_estado. No afirmes que lo actualizaste sin hacerlo.\n' : '') +
       'Canales de menx: conversación con OTRO agente, que puede estar en otra ' +
       'máquina. ' + (ES_CODEX ? 'Lo que te escriban llega como JSON de MENX en la cola de esta conversación.\n' :
       'Lo que te escriban llega como <channel source="menx-canal" canal="..." de="..." seq="...">.\n') +
@@ -588,6 +594,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         canales: mios,
         nota: 'esta identidad vale solo para esta conversación; ya estás escuchando',
         cliente: CLIENTE, sesion: SESION || null,
+        ...(ES_CODEX ? { statusline: etiquetaCodex(agente, mios) } : {}),
       })
     }
 
@@ -604,9 +611,12 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
                                 'si esta conversación es la misma, identifícate así' } : {}),
         })
       }
+      const mios = await llamar('mis_canales', { agente })
+      recordar(agente, mios.map((x) => x.nombre))
       return ok({ agente, cliente: CLIENTE, sesion: SESION || null,
                   equipo: equipoLocal?.nombre ?? null, hostname: HOST,
-                  canales: await llamar('mis_canales', { agente }) })
+                  canales: mios,
+                  ...(ES_CODEX ? { statusline: etiquetaCodex(agente, mios) } : {}) })
     }
 
     if (!agente) {
@@ -634,8 +644,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
     if (req.params.name === 'canal_unirse') {
       const r = await llamar('unirse_canal', { canal: a.canal, agente })
-      recordar(agente, (await llamar('mis_canales', { agente })).map((x) => x.nombre))
-      return ok(r)
+      const mios = await llamar('mis_canales', { agente })
+      recordar(agente, mios.map((x) => x.nombre))
+      return ok(ES_CODEX ? { ...r, statusline: etiquetaCodex(agente, mios) } : r)
     }
     if (req.params.name === 'canal_enviar') {
       return ok(await llamar('enviar_mensaje', {
@@ -645,8 +656,9 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
     }
     if (req.params.name === 'canal_salir') {
       const r = await llamar('salir_canal', { canal: a.canal, agente })
-      recordar(agente, (await llamar('mis_canales', { agente })).map((x) => x.nombre))
-      return ok(r)
+      const mios = await llamar('mis_canales', { agente })
+      recordar(agente, mios.map((x) => x.nombre))
+      return ok(ES_CODEX ? { ...r, statusline: etiquetaCodex(agente, mios) } : r)
     }
     return mal(`tool desconocida: ${req.params.name}`)
   } catch (e) {
