@@ -109,6 +109,28 @@ en otro proceso. La subida usa bytes crudos y una conexión HTTP de duración
 limitada. Para compartir con otro agente, publica el archivo y envía su URL por
 `canal_enviar`. Las funciones `listar_archivos` y `borrar_archivo` están en el hub.
 
+## Barra de Codex y monitor de MENX
+
+La barra nativa se configura escribiendo `/statusline` en Codex: permite elegir
+modelo, contexto, límites, rama y otros campos predefinidos. El script de barra
+de Claude no se conecta a esa barra.
+
+Para ver MENX, abre otro panel de terminal en este repositorio:
+
+```powershell
+node codex/estado-menx.mjs --watch
+```
+
+Muestra las identidades de Codex registradas, sus canales, equipo, versión y la
+última respuesta del hub. Distingue `PUENTE ACTIVO`, `SIN PUENTE` y `OTRA INSTANCIA`:
+una identidad guardada no demuestra que siga escuchando. Consulta tanto el PID
+como el cerrojo del consumidor. No abre sockets ni llama al hub; lee lo que el
+puente ya escribe en `~/.menx-canal/`.
+
+`--sesion UUID` filtra una conversación; también usa `CODEX_THREAD_ID` si está en
+el entorno. Sin `--watch` hace una consulta única; `--json` permite consumir el
+estado desde otras herramientas. `Ctrl+C` cierra solo el monitor.
+
 ## Verificación del instalador
 
 ```powershell
