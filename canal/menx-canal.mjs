@@ -33,11 +33,14 @@ import {
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { homedir, tmpdir, hostname } from 'node:os'
 import { join } from 'node:path'
+import { entregarCodex } from './entrega-codex.mjs'
 
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-const VERSION = '0.5.3'
+const VERSION = '0.6.0'
+const ES_CODEX = process.env.MENX_CLIENT === 'codex'
+const CLIENTE = ES_CODEX ? 'Codex' : 'Claude Code'
 
 // Estado del hub visto desde este puente, para la barra de estado: versión que
 // declaró al conectar, último sondeo bueno y el último error. Se escribe en el
@@ -66,9 +69,11 @@ const log = (m) => process.stderr.write(`[menx-canal] ${m}\n`)
 //
 // Se guarda contra CLAUDE_CODE_SESSION_ID, que es lo que la reconexión conserva y
 // una conversación nueva no: exactamente la vida que debe tener la identidad.
-const SESION = (process.env.CLAUDE_CODE_SESSION_ID || '').trim()
+const SESION = (ES_CODEX
+  ? process.env.CODEX_THREAD_ID || process.env.CODEX_SESSION_ID || ''
+  : process.env.CLAUDE_CODE_SESSION_ID || '').trim()
 const ARCHIVO = join(process.env.MENX_CANAL_DIR || join(homedir(), '.menx-canal'),
-                     'identidades.json')
+                     ES_CODEX ? 'identidades-codex.json' : 'identidades.json')
 
 function leerTodas() {
   try {
@@ -124,12 +129,24 @@ if (!URL_HUB || !APIKEY) {
   log('faltan MEMORY_BASE_URL o MEMORY_APIKEY; el puente no arranca')
   process.exit(1)
 }
+if (ES_CODEX && !SESION) {
+  log('falta CODEX_THREAD_ID; no se arrancará un consumidor sin sesión de destino')
+  process.exit(1)
+}
+
+async function entregar(params) {
+  if (ES_CODEX) return entregarCodex(params)
+  await mcp.notification({ method: 'notifications/claude/channel', params })
+}
 
 const mcp = new Server(
   { name: 'menx-canal', version: VERSION },
   {
-    capabilities: { experimental: { 'claude/channel': {} }, tools: {} },
+    capabilities: { ...(ES_CODEX ? {} : { experimental: { 'claude/channel': {} } }), tools: {} },
     instructions:
+      (ES_CODEX ? 'Transporte Codex: los mensajes llegan mediante codex queue como JSON ' +
+        'con source="menx-canal", content y meta (canal, de, para, seq, tags, tipo). ' +
+        'El acuse significa guardado en la cola de Codex, no que el modelo ya lo leyó.\n' : '') +
       'Canales de menx: conversación con OTRO agente, que puede estar en otra ' +
       'máquina. Lo que te escriban llega como <channel source="menx-canal" ' +
       'canal="..." de="..." seq="...">.\n' +
@@ -548,6 +565,7 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
         agente, equipo: equipoLocal?.nombre ?? null,
         canales: mios,
         nota: 'esta identidad vale solo para esta conversación; ya estás escuchando',
+        cliente: CLIENTE, sesion: SESION || null,
       })
     }
 
@@ -563,7 +581,8 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
                                 'si esta conversación es la misma, identifícate así' } : {}),
         })
       }
-      return ok({ agente, equipo: equipoLocal?.nombre ?? null, hostname: HOST,
+      return ok({ agente, cliente: CLIENTE, sesion: SESION || null,
+                  equipo: equipoLocal?.nombre ?? null, hostname: HOST,
                   canales: await llamar('mis_canales', { agente }) })
     }
 
@@ -636,15 +655,12 @@ async function avisarMudo(quien) {
   yaAvise = true
   log(`AVISO: otra instancia tomó el buzón de "${quien}"; dejo de recibir mensajes`)
   try {
-    await mcp.notification({
-      method: 'notifications/claude/channel',
-      params: {
+    await entregar({
         content: `Este puente dejó de escuchar: otra instancia tomó el buzón de ` +
                  `"${quien}". Si esperas mensajes por un canal, no van a llegar aquí. ` +
                  'Vuelve a llamar a `canal_identificarse` para recuperar el turno, o ' +
-                 'reinicia Claude Code si sigue igual.',
+                 `reinicia ${CLIENTE} si sigue igual.`,
         meta: { canal: '-', de: 'menx-canal', tipo: 'aviso' },
-      },
     })
   } catch { /* si el stdio ya no se lee, el log de arriba es lo que queda */ }
 }
@@ -732,9 +748,7 @@ async function escuchar() {
         }
         const porAcusar = new Map()   // quién me escribió → cuántos mensajes
         for (const m of nuevos) {
-          await mcp.notification({
-            method: 'notifications/claude/channel',
-            params: {
+          await entregar({
               content: m.texto,
               // Cada clave es un atributo del tag <channel>. `canal` y `de` son
               // los que el agente necesita para saber dónde y a quién contestar.
@@ -746,8 +760,10 @@ async function escuchar() {
                 // mensaje para que el agente no dependa de recordarlo.
                 ...(c.tags?.length ? { tags: c.tags.join(',') } : {}),
               },
-            },
           })
+          // Si falla el siguiente mensaje del lote, no repetir los que Codex ya
+          // guardó. El hub solo se confirma al completar el lote.
+          empujado.set(c.canal, m.seq)
           log(`<- ${c.canal} · ${m.de}: ${m.texto.slice(0, 60)}`)
           // Acusa lo dirigido a mí. Un mensaje general solo se acusa si en el canal
           // somos dos (ahí "todos" soy yo); en una sala de diez, diez acuses por un
@@ -780,8 +796,9 @@ async function escuchar() {
             try {
               await llamar('enviar_mensaje', {
                 canal: c.canal, agente: quien, acuse: true, para: de,
-                texto: `[entregado a ${quien}] ${cuantos}, lo estoy procesando; ` +
-                       'te escribo cuando tenga algo.',
+                texto: ES_CODEX
+                  ? `[en cola de Codex para ${quien}] ${cuantos}; pendiente de procesamiento.`
+                  : `[entregado a ${quien}] ${cuantos}, lo estoy procesando; te escribo cuando tenga algo.`,
               })
             } catch (e) {
               log(`no pude acusar recibo en ${c.canal}: ${e?.message ?? e}`)
