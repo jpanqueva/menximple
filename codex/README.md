@@ -30,7 +30,7 @@ Se registran:
 
 | MCP | Función |
 | --- | --- |
-| `menximple` | Memorias remotas, búsqueda, carpetas y contexto por HTTP |
+| `menximple` | Proxy stdio local hacia las memorias remotas por HTTP |
 | `menximple-selector` | Selector visual local, cargar memorias y publicar archivos |
 | `menx-canal` | Identidad de conversación, operaciones de canal y entrega a Codex |
 
@@ -91,6 +91,21 @@ entrega pendiente a Codex, se envía DELETE al hub y se cierra el transporte loc
 Si DELETE no responde, el cierre local tiene un límite; la sesión remota dependerá
 de la caducidad del hub. En Windows el instalador prefiere el binario nativo para
 evitar dejar un proceso hijo detrás del shim Node.
+
+### Consumo de conexiones (0.6.2)
+
+En Codex, el hub también se configura como proceso local stdio
+(`python -m memory_tui.mcp_proxy`). El proxy conserva una sesión remota por proceso;
+no crea una por llamada. El selector local y ese proxy usan
+`MEMORY_HTTP_POST_ONLY=1`. El puente de canales de Codex omite asimismo el GET SSE
+opcional: recibe por el POST de long-poll y entrega mediante `codex queue`.
+
+Así se evitan tres escuchas GET que podían quedar abiertas por conversación
+(hub, selector una vez usado y puente). El POST de escucha de canales sigue abierto
+hasta recibir un mensaje o agotar sus 100 segundos. Los límites de nginx permanecen
+intactos. Después de actualizar esta configuración hay que reabrir las sesiones
+Codex antiguas para que suelten los transportes anteriores y carguen los nuevos.
+No requiere reinstalar los ejecutables Python ni cambiar el servidor.
 
 Los mensajes largos viajan como referencia a JSON local en
 `~/.menx-canal/mensajes-codex/`, con SHA-256, para no exceder el límite de argumentos

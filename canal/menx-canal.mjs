@@ -39,7 +39,7 @@ import { etiquetaCodex } from './etiqueta-codex.mjs'
 const URL_HUB = process.env.MEMORY_BASE_URL
 const APIKEY = process.env.MEMORY_APIKEY
 
-const VERSION = '0.6.1'
+const VERSION = '0.6.2'
 const ES_CODEX = process.env.MENX_CLIENT === 'codex'
 const CLIENTE = ES_CODEX ? 'Codex' : 'Claude Code'
 
@@ -239,6 +239,10 @@ function cliente() {
       const c = new Client({ name: 'menx-canal', version: VERSION }, { capabilities: {} })
       const t = new StreamableHTTPClientTransport(new URL(URL_HUB), {
         requestInit: { headers: { 'X-API-Key': APIKEY } },
+        // Codex recibe los mensajes por queue y el hub responde al long-poll por
+        // POST. El GET SSE opcional consume una ranura de nginx sin aportar nada.
+        ...(ES_CODEX ? { fetch: (url, init) => init?.method === 'GET'
+          ? Promise.resolve(new Response(null, { status: 405 })) : fetch(url, init) } : {}),
       })
       try {
         await c.connect(t)

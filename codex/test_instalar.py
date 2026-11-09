@@ -18,7 +18,9 @@ class Configuracion(unittest.TestCase):
         datos = tomllib.loads(primera)
         self.assertEqual(datos['model'], 'modelo-local')
         self.assertEqual(datos['mcp_servers']['otro']['command'], 'otro')
-        self.assertEqual(datos['mcp_servers']['menximple']['http_headers']['X-API-Key'], 'clave-"\\\n')
+        self.assertEqual(datos['mcp_servers']['menximple']['env']['MEMORY_APIKEY'], 'clave-"\\\n')
+        self.assertNotIn('url', datos['mcp_servers']['menximple'])
+        self.assertEqual(datos['mcp_servers']['menximple']['env']['MEMORY_HTTP_POST_ONLY'], '1')
         self.assertNotIn('menx-canal', datos['mcp_servers'])
 
     def test_no_reemplaza_mcp_existente_no_administrado(self):

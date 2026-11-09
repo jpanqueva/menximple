@@ -62,16 +62,26 @@ async function entorno(t) {
       maxVivas = Math.max(maxVivas, sesiones.size)
       res.setHeader('mcp-session-id', id)
       responder(res, body.id, { protocolVersion: body.params.protocolVersion,
-        serverInfo: { name: 'menx-test', version: '1.0' }, capabilities: { tools: {} } })
+        serverInfo: { name: 'menx-test', version: '1.0' }, capabilities: { tools: {} },
+        instructions: 'HUB-TEST: instrucciones remotas preservadas' })
       return
     }
     if (body.method?.startsWith('notifications/')) { res.writeHead(202); res.end(); return }
     if (!sesiones.has(sid)) { res.writeHead(404); res.end(); return }
+    if (body.method === 'tools/list') {
+      responder(res, body.id, { tools: ['arbol', 'prueba_error'].map((name) => ({
+        name, description: name, inputSchema: { type: 'object', properties: {} },
+      })) }); return
+    }
     const tool = body.params?.name, a = body.params?.arguments ?? {}
     if (tool === 'registro_ver' && fallo503) {
       fallo503 = false; res.writeHead(503); res.end('Service Temporarily Unavailable'); return
     }
     const ok = (data) => responder(res, body.id, { content: [{ type: 'text', text: JSON.stringify(data) }] })
+    if (tool === 'arbol') return ok({ carpetas: 1, texto: 'prueba/' })
+    if (tool === 'prueba_error') return responder(res, body.id, {
+      isError: true, content: [{ type: 'text', text: 'error de negocio esperado' }],
+    })
     if (tool === 'registro_ver') return ok([{ nombre: 'prueba', hostname: 'prueba', tipo: 'pc' }])
     if (tool === 'mis_canales') return ok([{ nombre: 'canal-menx-trabajo' }])
     if (tool === 'unirse_canal') return responder(res, body.id, {
@@ -112,17 +122,21 @@ async function entorno(t) {
     if(existsSync(process.env.COLA_COLGADA)) await new Promise(()=>setInterval(()=>{},1000));
   `)
   const clientes = []
-  async function abrir(codex = true, session = randomUUID()) {
+  async function abrir(codex = true, session = randomUUID(), proxyPython = false) {
     const env = { ...process.env, MEMORY_BASE_URL: `http://127.0.0.1:${server.address().port}/mcp`,
       MEMORY_APIKEY: 'test-only', MENX_CANAL_DIR: dir, MENX_CODEX_CLI: fakeCli,
-      REGISTRO_COLA: registro, FALLO_COLA: join(dir, 'fallar'), COLA_COLGADA: join(dir, 'colgar') }
+      REGISTRO_COLA: registro, FALLO_COLA: join(dir, 'fallar'), COLA_COLGADA: join(dir, 'colgar'),
+      MEMORY_HTTP_POST_ONLY: '1' }
     for (const key of ['CODEX_THREAD_ID', 'CODEX_SESSION_ID', 'CLAUDE_CODE_SESSION_ID', 'CANAL_AGENTE', 'MENX_CLIENT']) delete env[key]
     if (session) env[codex ? 'CODEX_THREAD_ID' : 'CLAUDE_CODE_SESSION_ID'] = session
     const client = new Client({ name: 'test', version: '1' })
-    const transport = new StdioClientTransport({ command: process.execPath, args: [codex ? CODEX : PUENTE], env, stderr: 'pipe' })
+    const transport = new StdioClientTransport({
+      command: proxyPython ? (process.env.MENX_TEST_PYTHON || 'python') : process.execPath,
+      args: proxyPython ? ['-m', 'memory_tui.mcp_proxy'] : [codex ? CODEX : PUENTE], env, stderr: 'pipe' })
     let stderr = ''
     transport.stderr.on('data', (data) => { stderr += data })
-    await client.connect(transport)
+    try { await client.connect(transport) }
+    catch (e) { await transport.close(); throw new Error(`arranque MCP: ${stderr}`, { cause: e }) }
     const c = { client, transport, session, eventos: [], log: () => stderr,
       call: async (name, args = {}) => {
         const r = await client.callTool({ name, arguments: args })
@@ -158,6 +172,7 @@ test('Claude conserva push, errores de negocio reutilizan sesión y cerrar termi
   assert.ok(c.client.getServerCapabilities().experimental['claude/channel'])
   assert.equal((await c.call('canal_identificarse', { agente: AGENTE })).error, false)
   await hasta(() => h.stats().polls > 0)
+  assert.equal(h.stats().gets, 1, 'el mismo hub de prueba sí cuenta la escucha GET de Claude')
   for (let i = 0; i < 3; i++) {
     const r = await c.call('canal_unirse', { canal: 'inexistente' })
     assert.ok(r.error); assert.match(r.data, /no existe/)
@@ -169,6 +184,22 @@ test('Claude conserva push, errores de negocio reutilizan sesión y cerrar termi
   assert.equal(c.eventos[0].params.content, 'hola')
   assert.equal(h.acuses.length, 1)
   assert.match(h.acuses[0].texto, /lo estoy procesando/)
+  await c.client.close()
+  await hasta(() => h.cerradas.length === 1)
+  assert.equal(h.sesiones.size, 0)
+})
+
+test('proxy de memorias por stdio: una sesión reutilizada, cero GET y cierre remoto', async (t) => {
+  const h = await entorno(t), c = await h.abrir(true, null, true)
+  assert.match(c.client.getInstructions(), /HUB-TEST/)
+  assert.ok((await c.client.listTools()).tools.some((x) => x.name === 'arbol'))
+  for (let i = 0; i < 8; i++) {
+    const r = await c.call('arbol')
+    assert.equal(r.data.carpetas, 1)
+  }
+  assert.ok((await c.call('prueba_error')).error)
+  assert.equal(h.abiertas.length, 1)
+  assert.equal(h.stats().gets, 0, 'el hub de memorias no deja una escucha SSE abierta')
   await c.client.close()
   await hasta(() => h.cerradas.length === 1)
   assert.equal(h.sesiones.size, 0)
@@ -250,7 +281,8 @@ test('red 503 cierra la sesión anterior antes de abrir otra', async (t) => {
 test('DELETE colgado no deja al proceso ni su socket SSE vivos', async (t) => {
   const h = await entorno(t), c = await h.abrir()
   await c.call('canal_estado')
-  await hasta(() => h.stats().gets === 1)
+  await hasta(() => h.abiertas.length === 1)
+  assert.equal(h.stats().gets, 0)
   h.deleteColgado()
   await c.client.close()
   await hasta(() => h.stats().sockets === 0)
@@ -279,7 +311,7 @@ test('65 segundos de escucha no reciclan por el timeout de 60 del SDK', { timeou
   await pausa(65000)
   assert.equal(h.abiertas.length, 1, c.log())
   assert.equal(h.stats().polls, 1, 'la misma llamada sigue esperando después de 60s')
-  assert.equal(h.stats().gets, 1)
+  assert.equal(h.stats().gets, 0)
   await c.client.close()
   await hasta(() => h.cerradas.length === 1)
   assert.equal(h.sesiones.size, 0)

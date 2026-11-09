@@ -17,6 +17,7 @@ import atexit
 import logging
 import os
 import threading
+import httpx
 
 from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
@@ -30,13 +31,31 @@ _clientes: dict[tuple, Client] = {}
 _cerrojos: dict[tuple, asyncio.Lock] = {}
 
 
+class _PostOnlyClient(httpx.AsyncClient):
+    async def send(self, request, **kwargs):
+        if request.method == 'GET':
+            # El hub es petición/respuesta. Las tools y el long-poll viajan por
+            # POST; no necesitamos el GET SSE opcional para eventos espontáneos.
+            return httpx.Response(405, request=request)
+        return await super().send(request, **kwargs)
+
+
+def _post_only_factory(headers=None, timeout=None, auth=None, **kwargs):
+    kwargs.setdefault('follow_redirects', True)
+    return _PostOnlyClient(headers=headers, auth=auth,
+                           timeout=timeout or httpx.Timeout(30, read=300), **kwargs)
+
+
 def _transport(apikey: str | None, admin: str | None) -> StreamableHttpTransport:
     headers: dict[str, str] = {}
     if apikey:
         headers["X-API-Key"] = apikey
     if admin:
         headers["X-Admin-Token"] = admin
-    return StreamableHttpTransport(BASE_URL, headers=headers)
+    opciones = {}
+    if os.environ.get('MEMORY_HTTP_POST_ONLY') == '1':
+        opciones['httpx_client_factory'] = _post_only_factory
+    return StreamableHttpTransport(BASE_URL, headers=headers, **opciones)
 
 
 def _bucle() -> asyncio.AbstractEventLoop:

@@ -44,11 +44,10 @@ def encontrar_cli():
 
 
 def bloque(url, key, node=None, cli=None, solo_memorias=False):
-    env = {'MEMORY_BASE_URL': url, 'MEMORY_APIKEY': key}
-    lineas = [INICIO, '[mcp_servers.menximple]', f'url = {cadena(url)}',
-              'startup_timeout_sec = 45', 'tool_timeout_sec = 120',
-              '[mcp_servers.menximple.http_headers]', f'X-API-Key = {cadena(key)}', '']
+    env = {'MEMORY_BASE_URL': url, 'MEMORY_APIKEY': key, 'MEMORY_HTTP_POST_ONLY': '1'}
+    lineas = [INICIO]
     locales = [
+        ('menximple', sys.executable, ['-m', 'memory_tui.mcp_proxy'], {}),
         ('menximple-selector', sys.executable, ['-m', 'memory_tui.mcp_local'], {}),
     ]
     if not solo_memorias:
@@ -101,6 +100,9 @@ def main():
     import importlib.util
     if not importlib.util.find_spec('fastmcp') or not importlib.util.find_spec('memory_tui'):
         raise ValueError('instala primero el cliente: python -m pip install -e .')
+    from fastmcp import server as fastmcp_server
+    if not hasattr(fastmcp_server, 'create_proxy'):
+        raise ValueError('el cliente FastMCP necesita create_proxy; actualiza sus dependencias antes de instalar Codex')
     node, cli = None, None
     if not opts.solo_memorias:
         node = shutil.which('node')
