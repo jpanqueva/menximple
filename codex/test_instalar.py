@@ -25,6 +25,18 @@ class Configuracion(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ya existen MCP'):
             instalar.preparar('[mcp_servers.menximple]\nurl="https://example.test"', '')
 
+    def test_actualizar_memorias_a_tres_mcp_preserva_opciones_y_no_fija_identidad(self):
+        base = 'model = "modelo-local"\n'
+        parcial = instalar.preparar(base, instalar.bloque('https://example.test', 'test-only', solo_memorias=True))
+        completo = instalar.preparar(parcial, instalar.bloque('https://example.test', 'test-only', 'node', '/codex.js'))
+        datos = tomllib.loads(completo)
+        self.assertEqual(datos['model'], 'modelo-local')
+        self.assertEqual(set(datos['mcp_servers']), set(instalar.NOMBRES))
+        canal = datos['mcp_servers']['menx-canal']
+        self.assertIn('CODEX_THREAD_ID', canal['env_vars'])
+        self.assertNotIn('CODEX_THREAD_ID', canal['env'])
+        self.assertNotIn('CANAL_AGENTE', canal['env'])
+
     def test_bloque_incompleto_no_se_repara_adivinando(self):
         with self.assertRaisesRegex(ValueError, 'incompleto'):
             instalar.preparar(instalar.INICIO, '')

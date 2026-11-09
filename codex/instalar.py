@@ -31,6 +31,12 @@ def encontrar_cli():
     ruta = Path(shim).resolve()
     js = ruta.parent / 'node_modules/@openai/codex/bin/codex.js'
     if js.is_file():
+        # En Windows matar el shim Node puede dejar vivo su hijo codex.exe.
+        # Lanzar directamente el binario permite cancelar una entrega colgada.
+        if os.name == 'nt':
+            binarios = list((js.parent.parent / 'node_modules/@openai').glob('codex-win32-*/vendor/*/bin/codex.exe'))
+            if len(binarios) == 1:
+                return binarios[0]
         return js
     if ruta.suffix.lower() in ('.cmd', '.bat', '.ps1'):
         raise ValueError('no se encontró el ejecutable de Codex; usa --codex-cli <ruta a codex.js o ejecutable>')
@@ -50,8 +56,10 @@ def bloque(url, key, node=None, cli=None, solo_memorias=False):
     for nombre, comando, args, extra in locales:
         lineas += [f'[mcp_servers.{nombre}]', f'command = {cadena(comando)}',
                    f'args = {json.dumps(args, ensure_ascii=False)}',
-                   'startup_timeout_sec = 45', 'tool_timeout_sec = 120',
-                   f'[mcp_servers.{nombre}.env]']
+                   'startup_timeout_sec = 45', 'tool_timeout_sec = 120']
+        if nombre == 'menx-canal':
+            lineas += ['env_vars = ["CODEX_THREAD_ID", "CODEX_SESSION_ID"]']
+        lineas += [f'[mcp_servers.{nombre}.env]']
         lineas += [f'{k} = {cadena(v)}' for k, v in {**env, **extra}.items()]
         lineas += ['']
     return '\n'.join(lineas + [FIN, ''])

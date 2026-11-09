@@ -98,7 +98,7 @@ async def publicar_archivo(ruta: str, nombre: str | None = None,
                            descripcion: str | None = None) -> dict:
     """Sube un archivo de esta máquina al hub y devuelve su **URL pública**.
 
-    `ruta` es la ruta local (absoluta, o relativa a donde arrancó Claude Code).
+    `ruta` es la ruta local (absoluta, o relativa a donde arrancó el agente).
     `nombre` cambia cómo se llama en el link (por defecto, el del archivo).
     `expira_dias` hace que el link deje de abrir pasado ese tiempo; sin él dura
     hasta que se borre con `borrar_archivo`.

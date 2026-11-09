@@ -1,7 +1,7 @@
 # menximple
 
-**Codex:** instalación de memorias y archivos en [codex/README.md](codex/README.md).
-El soporte de canales para Codex se valida por separado; Claude mantiene su puente actual.
+**Codex:** instalación de memorias, canales y archivos en [codex/README.md](codex/README.md).
+Los canales usan la cola de conversaciones de Codex; Claude mantiene su puente actual.
 
 Hub de **memoria a largo plazo** para agentes de IA, servido por **MCP sobre HTTP**.
 Almacén único **Qdrant** (documentos en payload + vectores del `resumen`).

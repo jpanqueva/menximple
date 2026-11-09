@@ -1,5 +1,18 @@
 # Pruebas
 
+## Cliente Codex, canales y subida local (sin producción)
+
+```powershell
+python -m unittest discover -s codex -p "test_*.py"
+node --test canal/pruebas/codex.test.mjs
+```
+
+Requieren las dependencias del cliente y `npm --prefix canal ci`. Usan un hub
+HTTP/SSE local y una cola de prueba: cuentan sesiones abiertas/cerradas, verifican
+el consumidor único, los fallos de cola sin confirmación, la cancelación de
+procesos y la compatibilidad con Claude. La espera de 65 s comprueba que no reaparezca
+la fuga por el timeout de 60 s. No usan credenciales ni envían a otros agentes.
+
 Dos grupos, con costes muy distintos.
 
 ## Herméticas — corren solas

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Puente que empuja los mensajes de los canales de menx a la sesion de Claude Code",
+  "description": "Puente de canales de menx para Claude Code y Codex",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   }
